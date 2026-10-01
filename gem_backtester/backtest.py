@@ -25,22 +25,56 @@ class Result:
     def drawdown(self) -> pd.Series:
         return self.equity / self.equity.cummax() - 1.0
 
+    @property
+    def start(self) -> pd.Timestamp:
+        return self.equity.index[0]
 
-def run(prices: pd.DataFrame, lookback: int, skip: int = 0) -> Result:
-    """Backtest on daily prices (one column per asset), using all available data.
+    @property
+    def end(self) -> pd.Timestamp:
+        return self.equity.index[-1]
+
+
+def momentum_table(prices: pd.DataFrame, lookback: int, skip: int = 0) -> pd.DataFrame:
+    """Month-end momentum: return from `lookback` months ago to `skip` months ago.
+
+    `prices` must be sorted and forward-filled. Each row only uses prices up to that month-end.
+    """
+    month_ends = prices.groupby(prices.index.to_period("M")).tail(1)
+    return month_ends.shift(skip) / month_ends.shift(lookback) - 1.0
+
+
+def run(
+    prices: pd.DataFrame,
+    lookback: int,
+    skip: int = 0,
+    start: pd.Timestamp | str | None = None,
+    end: pd.Timestamp | str | None = None,
+    common: bool = False,
+) -> Result:
+    """Backtest on daily prices (one column per asset).
 
     At each month-end the asset with the highest return from `lookback` months ago to
     `skip` months ago is chosen (skip=1 ignores the most recent month); it is held from
     the next trading day. Assets without a price at the start of the window are not
     eligible. The pick made on the last day of data is shown but not traded.
+
+    Period (all optional):
+    - default: trade from the first month-end at which at least one asset has enough history;
+      assets join the ranking as soon as they have enough history of their own.
+    - `common=True`: trade only from the first month-end at which every asset is eligible.
+    - `start` / `end`: first pick at the first month-end on or after `start`; data after `end`
+      is ignored. Prices before `start` are still used for the first signals (no look-ahead).
     """
     if lookback <= skip:
         raise ValueError("Lookback must be longer than the ignored months")
     prices = prices.sort_index().ffill()  # a missing day must not drop an asset from the ranking
-    month_ends = prices.groupby(prices.index.to_period("M")).tail(1)
-    momentum = (month_ends.shift(skip) / month_ends.shift(lookback) - 1.0).dropna(how="all")
+    if end is not None:
+        prices = prices.loc[: pd.Timestamp(end)]
+    momentum = momentum_table(prices, lookback, skip).dropna(how="any" if common else "all")
+    if start is not None:
+        momentum = momentum.loc[momentum.index >= pd.Timestamp(start)]
     if momentum.empty:
-        raise ValueError("Not enough price history for this lookback")
+        raise ValueError("Not enough price history for this lookback and period")
     picks = momentum.idxmax(axis=1)
 
     # A pick made at the close of day d earns the returns from day d+1 on.
