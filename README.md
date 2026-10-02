@@ -2,6 +2,8 @@
 
 A modular Python tool to backtest and analyze Global Equities Momentum (GEM) and custom momentum-based quantitative strategies.
 
+🚀 **Live demo:** [gem-strategy-backtester.streamlit.app](https://gem-strategy-backtester.streamlit.app)
+
 ## How GEM Works
 
 Global Equities Momentum (GEM), developed by Gary Antonacci, is a dual-momentum quantitative model. The classic algorithm follows this step-by-step process:
