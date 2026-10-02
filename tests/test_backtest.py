@@ -128,3 +128,44 @@ def test_period_without_data_raises():
         run(make_prices(), 3, start="2030-01-01")
     with pytest.raises(ValueError):
         run(make_prices(), 3, end="2019-01-01")
+
+
+def test_monthly_is_the_default_rebalance():
+    prices = make_prices()
+    pd.testing.assert_series_equal(run(prices, 3).picks, run(prices, 3, rebalance=1).picks)
+
+
+def test_rebalance_every_n_months_spaces_the_picks():
+    prices = make_prices()
+    monthly = run(prices, 3)
+    quarterly = run(prices, 3, rebalance=3)
+    assert quarterly.picks.index[0] == monthly.picks.index[0]
+    assert list(quarterly.picks.index) == list(monthly.picks.index[::3])
+    assert quarterly.picks.equals(monthly.picks.iloc[::3])
+
+
+def test_slow_rebalance_does_not_react_between_rebalances():
+    # A gains 2% a month until Oct 2021, then drops 20% in Nov; B is flat.
+    prices = make_monthly_steps()
+    monthly = run(prices, 3, skip=0)
+    slow = run(prices, 3, skip=0, rebalance=12)
+    # Monthly sees the drop at the Nov month-end; the 12-month cycle's last rebalance is earlier,
+    # so it still points at A.
+    assert monthly.picks.iloc[-1] == "B"
+    assert slow.picks.index[-1] < monthly.picks.index[-1]
+    assert slow.picks.iloc[-1] == "A"
+
+
+def test_rebalance_has_no_lookahead():
+    prices = make_prices()
+    cutoff = pd.Timestamp("2021-06-30")
+    base = run(prices.loc[:cutoff], 3, rebalance=2)
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > cutoff] = 1.0
+    other = run(wrecked, 3, rebalance=2)
+    pd.testing.assert_series_equal(base.equity.loc[:cutoff], other.equity.loc[:cutoff])
+
+
+def test_rebalance_must_be_at_least_one_month():
+    with pytest.raises(ValueError):
+        run(make_prices(), 3, rebalance=0)

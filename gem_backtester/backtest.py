@@ -1,4 +1,4 @@
-"""Pure backtest logic: every month hold the asset with the best return over the lookback window."""
+"""Pure backtest logic: every rebalancing period hold the asset with the best return over the lookback window."""
 
 from __future__ import annotations
 
@@ -50,12 +50,13 @@ def run(
     start: pd.Timestamp | str | None = None,
     end: pd.Timestamp | str | None = None,
     common: bool = False,
+    rebalance: int = 1,
 ) -> Result:
     """Backtest on daily prices (one column per asset).
 
-    At each month-end the asset with the highest return from `lookback` months ago to
-    `skip` months ago is chosen (skip=1 ignores the most recent month); it is held from
-    the next trading day. Assets without a price at the start of the window are not
+    Every `rebalance` months (counted in month-ends, 1 = monthly) the asset with the highest
+    return from `lookback` months ago to `skip` months ago is chosen (skip=1 ignores the most
+    recent month); it is held from the next trading day until the next rebalance. Assets without a price at the start of the window are not
     eligible. The pick made on the last day of data is shown but not traded.
 
     Period (all optional):
@@ -64,9 +65,13 @@ def run(
     - `common=True`: trade only from the first month-end at which every asset is eligible.
     - `start` / `end`: first pick at the first month-end on or after `start`; data after `end`
       is ignored. Prices before `start` are still used for the first signals (no look-ahead).
+
+    The first pick is always the first rebalance; later ones follow every `rebalance` month-ends.
     """
     if lookback <= skip:
         raise ValueError("Lookback must be longer than the ignored months")
+    if rebalance < 1:
+        raise ValueError("Rebalancing period must be at least 1 month")
     prices = prices.sort_index().ffill()  # a missing day must not drop an asset from the ranking
     if end is not None:
         prices = prices.loc[: pd.Timestamp(end)]
@@ -75,7 +80,7 @@ def run(
         momentum = momentum.loc[momentum.index >= pd.Timestamp(start)]
     if momentum.empty:
         raise ValueError("Not enough price history for this lookback and period")
-    picks = momentum.idxmax(axis=1)
+    picks = momentum.iloc[::rebalance].idxmax(axis=1)
 
     # A pick made at the close of day d earns the returns from day d+1 on.
     held = picks.reindex(prices.index).ffill().shift(1).dropna()

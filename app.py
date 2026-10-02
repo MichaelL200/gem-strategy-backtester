@@ -1,4 +1,4 @@
-"""Streamlit app: pick assets and a lookback; each month hold the best performer."""
+"""Streamlit app: pick assets, a lookback and a rebalancing period; hold the best performer."""
 
 import pandas as pd
 import plotly.express as px
@@ -12,6 +12,7 @@ from gem_backtester.periods import ALL, COMMON, CUSTOM, MODES, availability, dur
 DEFAULT_ASSETS = {"MSCI World", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
 DEFAULT_LOOKBACK = 12
 DEFAULT_SKIP = 1
+DEFAULT_REBALANCE = 1
 GREEN = "#00C853"
 
 st.set_page_config(page_title="Momentum Backtester", layout="wide")
@@ -57,9 +58,15 @@ if lookback > skip:
 else:
     st.sidebar.warning("The lookback must be longer than the ignored months.")
 
-# ---- 3. Backtest period ----------------------------------------------------
+# ---- 3. Rebalancing --------------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 3 · Backtest period")
+st.sidebar.markdown("### 3 · Rebalancing")
+st.sidebar.caption("How often the ranking is redone and the portfolio switches to the winner.")
+rebalance = st.sidebar.slider("Rebalance every (months)", 1, 12, DEFAULT_REBALANCE)
+
+# ---- 4. Backtest period ----------------------------------------------------
+st.sidebar.divider()
+st.sidebar.markdown("### 4 · Backtest period")
 mode = st.sidebar.radio(
     "Period to backtest",
     MODES,
@@ -107,7 +114,9 @@ if avail is not None:
         st.caption("'Ranked from' = first month-end with a full lookback window.")
 
 try:
-    result = backtest.run(prices, lookback, skip, start=start, end=end, common=mode == COMMON)
+    result = backtest.run(
+        prices, lookback, skip, start=start, end=end, common=mode == COMMON, rebalance=rebalance
+    )
 except ValueError as error:
     st.error(str(error))
     st.stop()
