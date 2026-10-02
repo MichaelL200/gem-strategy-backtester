@@ -14,7 +14,7 @@ TRADING_DAYS = 252
 class Result:
     equity: pd.Series  # strategy value per day, starts at 1.0
     assets: pd.DataFrame  # each asset held alone, starting at the strategy's value on its first day
-    picks: pd.Series  # asset chosen at each month-end (decided at the close)
+    picks: pd.Series  # top-n assets chosen at each month-end (list of tickers per rebalance date)
     total_return: float
     cagr: float
     volatility: float
@@ -51,13 +51,15 @@ def run(
     end: pd.Timestamp | str | None = None,
     common: bool = False,
     rebalance: int = 1,
+    top_n: int = 1,
 ) -> Result:
     """Backtest on daily prices (one column per asset).
 
-    Every `rebalance` months (counted in month-ends, 1 = monthly) the asset with the highest
-    return from `lookback` months ago to `skip` months ago is chosen (skip=1 ignores the most
-    recent month); it is held from the next trading day until the next rebalance. Assets without a price at the start of the window are not
-    eligible. The pick made on the last day of data is shown but not traded.
+    Every `rebalance` months (counted in month-ends, 1 = monthly) the top `top_n` assets with the
+    highest return from `lookback` months ago to `skip` months ago are chosen (skip=1 ignores the
+    most recent month); they are held in equal weight (1/top_n each) from the next trading day
+    until the next rebalance. Assets without a price at the start of the window are not eligible.
+    The picks made on the last day of data are shown but not traded.
 
     Period (all optional):
     - default: trade from the first month-end at which at least one asset has enough history;
@@ -72,6 +74,8 @@ def run(
         raise ValueError("Lookback must be longer than the ignored months")
     if rebalance < 1:
         raise ValueError("Rebalancing period must be at least 1 month")
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
     prices = prices.sort_index().ffill()  # a missing day must not drop an asset from the ranking
     if end is not None:
         prices = prices.loc[: pd.Timestamp(end)]
@@ -80,16 +84,37 @@ def run(
         momentum = momentum.loc[momentum.index >= pd.Timestamp(start)]
     if momentum.empty:
         raise ValueError("Not enough price history for this lookback and period")
-    picks = momentum.iloc[::rebalance].idxmax(axis=1)
 
-    # A pick made at the close of day d earns the returns from day d+1 on.
-    held = picks.reindex(prices.index).ffill().shift(1).dropna()
+    rebalance_rows = momentum.iloc[::rebalance]
+    # For each rebalance date pick the top-n tickers by momentum score.
+    # nsmallest(-top_n) == nlargest(top_n) but nlargest is cleaner; we cap at the number of
+    # eligible (non-NaN) assets available on each row.
+    def _top_tickers(row: pd.Series) -> list[str]:
+        valid = row.dropna()
+        n = min(top_n, len(valid))
+        return list(valid.nlargest(n).index)
+
+    picks: pd.Series = rebalance_rows.apply(_top_tickers, axis=1)
+
+    # Build a daily "held basket" as a list of tickers; forward-fill from the day after each pick.
+    held_lists = picks.reindex(prices.index).ffill().shift(1).dropna()
+
     returns = prices.pct_change(fill_method=None)
-    column = held.map({name: i for i, name in enumerate(prices.columns)}).astype(int)
-    daily = pd.Series(
-        returns.to_numpy()[returns.index.get_indexer(held.index), column.to_numpy()],
-        index=held.index,
-    ).fillna(0.0)
+    returns_np = returns.to_numpy()
+    col_index = {name: i for i, name in enumerate(prices.columns)}
+    held_index = returns.index.get_indexer(held_lists.index)
+
+    daily_vals: list[float] = []
+    for row_pos, tickers in zip(held_index, held_lists):
+        if row_pos < 0:
+            daily_vals.append(0.0)
+            continue
+        basket_return = np.nanmean(
+            [returns_np[row_pos, col_index[t]] for t in tickers]
+        )
+        daily_vals.append(float(basket_return) if not np.isnan(basket_return) else 0.0)
+
+    daily = pd.Series(daily_vals, index=held_lists.index)
 
     start = picks.index[0]
     equity = pd.concat([pd.Series({start: 1.0}), (1.0 + daily).cumprod()])
