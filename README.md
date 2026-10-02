@@ -70,10 +70,22 @@ gem_backtester/
 └── backtest.py         # Strategy and metrics (pure logic, no I/O)
 tests/                  # pytest
 ```
-
 ## UI Theme
 
-Designed with a low-fatigue, high-contrast dark theme optimized for quant dashboards:
-- **Background:** Charcoal (`#0E1117`)
-- **Panels & Cards:** Dark Slate (`#1E232A`)
-- **Accent & Gains:** Emerald Green (`#00C853`)
+The app follows your system's light/dark setting by default. To manually change it, open the ⋮ menu (top right) and select **System**, **Light** or **Dark**.
+
+### 🌙 Dark Mode
+
+| Element | Color |
+|---|---|
+| **Background** (Charcoal) | ![#0E1117](https://img.shields.io/badge/-0E1117-0E1117?style=for-the-badge) |
+| **Panels & Cards** (Dark Slate) | ![#1E232A](https://img.shields.io/badge/-1E232A-1E232A?style=for-the-badge) |
+| **Accent & Gains** (Emerald Green) | ![#00C853](https://img.shields.io/badge/-00C853-00C853?style=for-the-badge) |
+
+### ☀️ Light Mode
+
+| Element | Color |
+|---|---|
+| **Background** (White) | ![#FFFFFF](https://img.shields.io/badge/-FFFFFF-FFFFFF?style=for-the-badge) |
+| **Panels & Cards** (Light Gray) | ![#F0F2F6](https://img.shields.io/badge/-F0F2F6-F0F2F6?style=for-the-badge) |
+| **Accent & Gains** (Emerald Green) | ![#00A344](https://img.shields.io/badge/-00A344-00A344?style=for-the-badge) |
