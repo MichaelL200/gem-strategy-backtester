@@ -23,11 +23,41 @@ Global Equities Momentum (GEM), developed by Gary Antonacci, is a dual-momentum 
 
 ## Getting Started
 
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-pytest
+Requires Python 3.x+.
+
+1. **Clone the repository**
+```sh
+   git clone https://github.com/MichaelL200/gem-strategy-backtester
+   cd gem-strategy-backtester
 ```
+
+2. **Create and activate a virtual environment**
+
+   **Linux / macOS**
+   ```sh
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+   **Windows (PowerShell)**
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1   # CMD: .venv\Scripts\activate.bat
+   ```
+
+3. **Install dependencies**
+```sh
+   pip install -r requirements.txt
+```
+
+4. **Run the app**
+```sh
+   streamlit run app.py
+```
+
+The app opens in your browser at <http://localhost:8501>. If it doesn't, open that address manually. Press `Ctrl+C` in the terminal to stop it.
+
+Run the tests with `pytest`.
 
 ## Structure
 
