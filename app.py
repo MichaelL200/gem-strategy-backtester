@@ -18,6 +18,11 @@ GREEN = "#00C853"
 st.set_page_config(page_title="Momentum Backtester", layout="wide")
 st.markdown(
     "<style>section[data-testid='stSidebar']{width:440px !important;min-width:440px !important}"
+    # let the long "Period" value (e.g. "13 years 8 months") wrap instead of ending with "..."
+    "[data-testid='stColumn']:first-child [data-testid='stMetricValue'],"
+    "[data-testid='stColumn']:first-child [data-testid='stMetricValue'] *{white-space:normal !important;"
+    "overflow:visible !important;text-overflow:clip !important;overflow-wrap:normal !important;"
+    "word-break:normal !important;line-height:1.15 !important}"
     "</style>",
     unsafe_allow_html=True,
 )
@@ -70,6 +75,7 @@ st.sidebar.markdown("### 4 · Backtest period")
 mode = st.sidebar.radio(
     "Period to backtest",
     MODES,
+    index=MODES.index(COMMON),
     label_visibility="collapsed",
     captions=[
         "Everything available; assets join once they have enough history",
@@ -122,8 +128,8 @@ except ValueError as error:
     st.stop()
 
 duration = duration_text(result.start, result.end)
-cols = st.columns(6)
-cols[0].metric("Period", duration, help=f"{result.start:%Y-%m-%d} → {result.end:%Y-%m-%d}")
+cols = st.columns([2, 1, 1, 1, 1, 1])
+cols[0].metric("Period", duration)
 cols[1].metric("CAGR", f"{result.cagr:.1%}")
 cols[2].metric("Total return", f"{result.total_return:.1%}")
 cols[3].metric("Volatility", f"{result.volatility:.1%}")

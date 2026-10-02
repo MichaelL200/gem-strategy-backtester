@@ -19,7 +19,7 @@ Global Equities Momentum (GEM), developed by Gary Antonacci, is a dual-momentum 
 - **Interactive UI:** The sidebar has four sections: **1 · Assets**, **2 · Lookback window**, **3 · Rebalancing** and **4 · Backtest period**. The chart compares the strategy with each asset held alone.
 - **Custom Strategy Parameters:** Adjust the asset list, the lookback window, the ignored months and the rebalancing period (every 1 to 12 months; monthly by default). The first pick is the first rebalance, and the chosen asset is held until the next one.
   Defaults: MSCI World, Gold, Bonds 7-10Y and Bonds 0-1Y; look back 12 months, ignore the last 1, so momentum is measured over **11 months**. The sidebar shows the window length.
-- **Backtest period:** *All available data* (assets join the ranking once they have enough history), *Common period* (starts when every selected asset can be ranked) or *Custom* (pick from/to dates). Prices before a custom start are still used for the first signals. The duration of the backtest (e.g. `13 years 8 months`) is shown with the results, and a *Data available per asset* table shows when each asset can first be ranked.
+- **Backtest period:** *All available data* (assets join the ranking once they have enough history), *Common period* (default; starts when every selected asset can be ranked) or *Custom* (pick from/to dates). Prices before a custom start are still used for the first signals. The duration of the backtest (e.g. `13 years 8 months`) is shown with the results, and a *Data available per asset* table shows when each asset can first be ranked.
 
 ## Getting Started
 
