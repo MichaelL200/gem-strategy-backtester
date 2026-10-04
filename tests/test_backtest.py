@@ -23,8 +23,8 @@ def make_monthly_steps() -> pd.DataFrame:
 
 def test_picks_best_in_window():
     result = run(make_prices(), 3)
-    assert result.picks.iloc[0] == "A"
-    assert result.picks.iloc[-1] == "B"
+    assert result.picks.iloc[0] == ["A"]
+    assert result.picks.iloc[-1] == ["B"]
 
 
 def test_equity_starts_at_one_and_assets_are_included():
@@ -36,8 +36,8 @@ def test_equity_starts_at_one_and_assets_are_included():
 
 def test_ignored_months_change_the_pick():
     prices = make_monthly_steps()
-    assert run(prices, 3, skip=0).picks.iloc[-1] == "B"  # the Nov drop is inside the window
-    assert run(prices, 3, skip=1).picks.iloc[-1] == "A"  # the Nov drop is ignored
+    assert run(prices, 3, skip=0).picks.iloc[-1] == ["B"]  # the Nov drop is inside the window
+    assert run(prices, 3, skip=1).picks.iloc[-1] == ["A"]  # the Nov drop is ignored
 
 
 def test_skip_must_be_shorter_than_lookback():
@@ -49,7 +49,9 @@ def test_missing_day_does_not_change_picks():
     prices = make_prices()
     gapped = prices.copy()
     gapped.loc["2020-09-30", "A"] = float("nan")
-    pd.testing.assert_series_equal(run(prices, 3).picks, run(gapped, 3).picks)
+    # Compare element-wise since picks are lists
+    for a, b in zip(run(prices, 3).picks, run(gapped, 3).picks):
+        assert a == b
 
 
 def test_no_lookahead():
@@ -71,7 +73,7 @@ def test_late_asset_joins_when_it_has_history():
     prices = make_prices()
     prices.loc[prices.index[:300], "B"] = float("nan")
     result = run(prices, 3)
-    assert result.picks.iloc[0] == "A"
+    assert result.picks.iloc[0] == ["A"]
     assert result.picks.index[0] < prices.index[300]
 
 
@@ -97,6 +99,76 @@ def test_common_period_starts_when_every_asset_is_eligible():
     assert common.picks.index[0] > everything.picks.index[0]
     assert common.picks.index[0] > prices.index[300]  # B has a full 3-month window by then
     assert set(common.assets.columns) == {"A", "B"}
+
+
+# ---- top_n tests -----------------------------------------------------------
+
+def test_top_n_one_is_default_behaviour():
+    """top_n=1 must match the legacy single-winner behaviour."""
+    prices = make_prices()
+    result_default = run(prices, 3)
+    result_explicit = run(prices, 3, top_n=1)
+    pd.testing.assert_series_equal(result_default.equity, result_explicit.equity)
+    for a, b in zip(result_default.picks, result_explicit.picks):
+        assert a == b
+
+
+def test_top_n_picks_contains_n_tickers():
+    prices = make_prices()
+    result = run(prices, 3, top_n=2)
+    for pick_list in result.picks:
+        assert len(pick_list) == 2
+
+
+def test_top_n_weights_drift_between_rebalances():
+    """No trading between rebalances: each asset keeps its units, so the weights drift."""
+    prices = make_prices()
+    result = run(prices, 3, rebalance=12, top_n=2)
+    first, second = result.picks.index[:2]
+    days = result.equity.loc[first:second].index
+    expected = 0.5 * prices.loc[days, "A"] / prices.loc[first, "A"]
+    expected += 0.5 * prices.loc[days, "B"] / prices.loc[first, "B"]
+    pd.testing.assert_series_equal(result.equity.loc[first:second], expected, check_names=False, check_freq=False)
+
+
+def test_top_n_weights_are_equal_again_at_each_rebalance():
+    prices = make_prices()
+    result = run(prices, 3, rebalance=3, top_n=2)
+    second, third = result.picks.index[1:3]
+    days = result.equity.loc[second:third].index
+    growth = result.equity.loc[days] / result.equity[second]
+    expected = 0.5 * prices.loc[days, "A"] / prices.loc[second, "A"]
+    expected += 0.5 * prices.loc[days, "B"] / prices.loc[second, "B"]
+    pd.testing.assert_series_equal(growth, expected, check_names=False, check_freq=False)
+
+
+def test_rebalance_period_matters_when_holding_all_assets():
+    prices = make_prices()
+    monthly = run(prices, 3, rebalance=1, top_n=2).equity
+    yearly = run(prices, 3, rebalance=12, top_n=2).equity
+    assert monthly.iloc[-1] != pytest.approx(yearly.iloc[-1])
+
+
+def test_top_n_greater_than_assets_is_capped():
+    """top_n larger than the asset count should not raise; it just holds all available assets."""
+    prices = make_prices()  # 2 assets
+    result = run(prices, 3, top_n=10)
+    for pick_list in result.picks:
+        assert len(pick_list) <= 2
+
+
+def test_top_n_must_be_at_least_one():
+    with pytest.raises(ValueError):
+        run(make_prices(), 3, top_n=0)
+
+
+def test_top_n_slow_rebalance():
+    """top_n interacts correctly with multi-month rebalancing intervals."""
+    prices = make_prices()
+    result = run(prices, 3, rebalance=3, top_n=2)
+    for pick_list in result.picks:
+        assert len(pick_list) == 2
+    assert list(result.picks.index) == list(run(prices, 3, rebalance=3).picks.index)
 
 
 def test_custom_period_bounds():
@@ -151,9 +223,9 @@ def test_slow_rebalance_does_not_react_between_rebalances():
     slow = run(prices, 3, skip=0, rebalance=12)
     # Monthly sees the drop at the Nov month-end; the 12-month cycle's last rebalance is earlier,
     # so it still points at A.
-    assert monthly.picks.iloc[-1] == "B"
+    assert monthly.picks.iloc[-1] == ["B"]
     assert slow.picks.index[-1] < monthly.picks.index[-1]
-    assert slow.picks.iloc[-1] == "A"
+    assert slow.picks.iloc[-1] == ["A"]
 
 
 def test_rebalance_has_no_lookahead():
