@@ -9,7 +9,7 @@ from gem_backtester.assets import ASSETS, CATEGORIES
 from gem_backtester.data import load_prices
 from gem_backtester.periods import ALL, COMMON, CUSTOM, MODES, availability, duration_text, window_text
 
-DEFAULT_ASSETS = {"MSCI World", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
+DEFAULT_ASSETS = {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
 DEFAULT_LOOKBACK = 12
 DEFAULT_SKIP = 1
 DEFAULT_REBALANCE = 1
