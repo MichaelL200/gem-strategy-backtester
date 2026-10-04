@@ -23,6 +23,14 @@ st.markdown(
     "[data-testid='stColumn']:first-child [data-testid='stMetricValue'] *{white-space:normal !important;"
     "overflow:visible !important;text-overflow:clip !important;overflow-wrap:normal !important;"
     "word-break:normal !important;line-height:1.15 !important}"
+    # main chart: about the rest of the window below the header, but never tiny or huge
+    # (Streamlit also fixes the height of the two wrapper elements, so all three need it,
+    # and the outer one has flex-basis 450px, which wins over height)
+    ".stElementContainer.st-key-main_chart{flex:0 0 auto !important}"
+    ".stElementContainer.st-key-main_chart,"
+    ".stElementContainer.st-key-main_chart [data-testid='stFullScreenFrame'],"
+    ".stElementContainer.st-key-main_chart [data-testid='stPlotlyChart']"
+    "{height:clamp(560px,calc(100vh - 400px),900px) !important}"
     "</style>",
     unsafe_allow_html=True,
 )
@@ -193,12 +201,13 @@ if mode == CUSTOM and result.start > start + pd.Timedelta(days=31):
         f"Trading starts at the first month-end with enough history, {result.start:%Y-%m-%d}."
     )
 
+st.caption("↓ Scroll down for the drawdown and picks charts.")
 compare = result.assets.rename(columns=label).assign(Strategy=result.equity)
 fig = px.line(compare, log_y=True, title="Strategy vs. assets held alone (start = 1)")
 fig.update_traces(line_width=1.2)
-fig.update_traces(line={"width": 3.5, "color": GREEN}, selector={"name": "Strategy"})
-fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="")
-st.plotly_chart(fig, width="stretch")
+fig.update_traces(line={"width": 3.5, "color": GREEN}, legendrank=1, selector={"name": "Strategy"})
+fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", margin={"t": 60})
+st.plotly_chart(fig, width="stretch", key="main_chart")
 st.plotly_chart(px.area(result.drawdown * 100, title="Strategy drawdown (%)"), width="stretch")
 # one row per (date, asset)
 picks = pd.DataFrame(
