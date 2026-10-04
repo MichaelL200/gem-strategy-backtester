@@ -36,7 +36,8 @@ def test_select_all_and_clear(app):
     app.sidebar.button[1].click().run()  # Clear
     assert not app.exception
     assert all(not names for names in selected(app).values())
-    assert "Choose at least two assets." in [i.value for i in app.info]
+    assert [w.value for w in app.warning] == ["Choose at least one asset."]
+    assert "st-key-assets" in " ".join(m.value for m in app.markdown)
 
 
 def test_select_all_keeps_chosen_n(app):
@@ -49,3 +50,29 @@ def test_default_assets_are_selected_on_first_run(app):
     assert [n for names in selected(app).values() for n in names] == [
         "MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"
     ]
+
+
+def test_warning_when_n_equals_number_of_assets(app):
+    assert not app.warning
+    app.slider(key="top_n").set_value(4).run()
+    assert len(app.warning) == 1
+    assert app.warning[0].value.startswith("**N = 4**")
+    assert "st-key-top_n" in " ".join(m.value for m in app.markdown)
+
+
+def test_window_info_has_only_the_length(app):
+    assert [i.value for i in app.info] == ["Window length: **11 months**"]
+
+
+def test_single_asset_shows_a_warning_and_the_charts(app):
+    app.sidebar.button[1].click().run()  # Clear
+    app.session_state["pills_Equities"] = ["S&P 500"]
+    app.run()
+    assert not app.exception
+    assert len(app.warning) == 1
+    assert app.warning[0].value.startswith("Only one asset is selected")
+    assert "st-key-assets" in " ".join(m.value for m in app.markdown)
+    assert not [s for s in app.slider if s.key == "top_n"]  # nothing to choose between
+    assert len(app.metric) == 6
+    assert len(app.get("plotly_chart")) == 3
+    assert "Latest pick: **S&P 500**" in " ".join(c.value for c in app.caption)

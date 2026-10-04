@@ -27,6 +27,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.title("Momentum Backtester")
+notices = st.container()  # warnings about the settings; filled further down
+
+
+def highlight(key: str) -> None:
+    """Orange frame around the setting (a widget or container key) a warning is about."""
+    st.markdown(
+        f"<style>.st-key-{key}{{outline:2px solid #FFA000;outline-offset:6px;border-radius:6px}}</style>",
+        unsafe_allow_html=True,
+    )
+
 
 @st.cache_data(ttl=12 * 3600)
 def prices_for(tickers: tuple[str, ...]) -> pd.DataFrame:
@@ -46,18 +56,19 @@ select_col, clear_col = st.sidebar.columns(2)
 select_col.button("Select all", on_click=select_assets, args=(True,), width="stretch")
 clear_col.button("Clear", on_click=select_assets, args=(False,), width="stretch")
 names: list[str] = []
-for category, group in CATEGORIES.items():
-    st.sidebar.caption(category.upper())
-    if f"pills_{category}" not in st.session_state:  # first run: the default assets
-        st.session_state[f"pills_{category}"] = [n for n in group if n in DEFAULT_ASSETS]
-    names += st.sidebar.pills(
-        category,
-        list(group),
-        selection_mode="multi",
-        format_func=lambda n: f"{n} · {ASSETS[n]}",
-        key=f"pills_{category}",
-        label_visibility="collapsed",
-    )
+with st.sidebar.container(key="assets"):
+    for category, group in CATEGORIES.items():
+        st.caption(category.upper())
+        if f"pills_{category}" not in st.session_state:  # first run: the default assets
+            st.session_state[f"pills_{category}"] = [n for n in group if n in DEFAULT_ASSETS]
+        names += st.pills(
+            category,
+            list(group),
+            selection_mode="multi",
+            format_func=lambda n: f"{n} · {ASSETS[n]}",
+            key=f"pills_{category}",
+            label_visibility="collapsed",
+        )
 
 # Hold top N: the chosen N is remembered; it is cut down to the number of selected assets.
 n_assets = len(names)
@@ -74,10 +85,19 @@ if n_assets >= 2:
     top_n = st.session_state.top_n
     st.session_state.saved_top_n = top_n
     if top_n == n_assets:
-        st.sidebar.info(
+        notices.warning(
             f"**N = {top_n}** is the number of selected assets: all are held in equal weights "
             "and the momentum ranking is ignored."
         )
+        highlight("top_n")
+else:
+    notices.warning(
+        "Choose at least one asset."
+        if n_assets == 0
+        else "Only one asset is selected: there is nothing to rank, so the strategy always holds "
+        "it. Choose at least two assets to compare."
+    )
+    highlight("assets")
 
 # ---- 2. Lookback window ----------------------------------------------------
 st.sidebar.divider()
@@ -86,11 +106,7 @@ st.sidebar.caption("How far back each asset's past performance is measured to ra
 lookback = st.sidebar.slider("Look back (months)", 1, 24, DEFAULT_LOOKBACK)
 skip = st.sidebar.slider("Ignore the most recent (months)", 0, 6, DEFAULT_SKIP)
 if lookback > skip:
-    until = f"{skip} month{'s' if skip != 1 else ''} ago" if skip else "now"
-    st.sidebar.info(
-        f"Window length: **{window_text(lookback, skip)}**  \n"
-        f"Performance from {lookback} months ago to {until}."
-    )
+    st.sidebar.info(f"Window length: **{window_text(lookback, skip)}**")
 else:
     st.sidebar.warning("The lookback must be longer than the ignored months.")
 
@@ -115,8 +131,7 @@ mode = st.sidebar.radio(
     ],
 )
 
-if len(names) < 2:
-    st.info("Choose at least two assets.")
+if not names:
     st.stop()
 
 try:
