@@ -1,0 +1,51 @@
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+from streamlit.testing.v1 import AppTest
+
+from gem_backtester import data
+from gem_backtester.assets import ASSETS, CATEGORIES
+
+APP = str(Path(__file__).parent.parent / "app.py")
+
+
+@pytest.fixture
+def app(monkeypatch):
+    index = pd.bdate_range("2015-01-01", "2024-12-31")
+    rng = np.random.default_rng(0)
+
+    def fake_load(ticker):
+        return pd.Series(100 * np.cumprod(1 + rng.normal(0.0003, 0.01, len(index))), index=index)
+
+    monkeypatch.setattr(data, "_load", fake_load)
+    return AppTest.from_file(APP, default_timeout=60).run()
+
+
+def selected(app) -> dict[str, list[str]]:
+    return {g.key.removeprefix("pills_"): g.value for g in app.sidebar.button_group}
+
+
+def test_select_all_and_clear(app):
+    app.sidebar.button[0].click().run()  # Select all
+    assert not app.exception
+    assert selected(app) == {category: list(group) for category, group in CATEGORIES.items()}
+    assert app.slider(key="top_n").max == len(ASSETS)
+
+    app.sidebar.button[1].click().run()  # Clear
+    assert not app.exception
+    assert all(not names for names in selected(app).values())
+    assert "Choose at least two assets." in [i.value for i in app.info]
+
+
+def test_select_all_keeps_chosen_n(app):
+    app.slider(key="top_n").set_value(3).run()
+    app.sidebar.button[0].click().run()
+    assert app.slider(key="top_n").value == 3
+
+
+def test_default_assets_are_selected_on_first_run(app):
+    assert [n for names in selected(app).values() for n in names] == [
+        "MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"
+    ]

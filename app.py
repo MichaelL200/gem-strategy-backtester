@@ -35,14 +35,25 @@ def prices_for(tickers: tuple[str, ...]) -> pd.DataFrame:
 
 # ---- 1. Assets -------------------------------------------------------------
 st.sidebar.markdown("### 1 · Assets")
+
+
+def select_assets(select: bool) -> None:
+    for category, group in CATEGORIES.items():
+        st.session_state[f"pills_{category}"] = list(group) if select else []
+
+
+select_col, clear_col = st.sidebar.columns(2)
+select_col.button("Select all", on_click=select_assets, args=(True,), width="stretch")
+clear_col.button("Clear", on_click=select_assets, args=(False,), width="stretch")
 names: list[str] = []
 for category, group in CATEGORIES.items():
     st.sidebar.caption(category.upper())
+    if f"pills_{category}" not in st.session_state:  # first run: the default assets
+        st.session_state[f"pills_{category}"] = [n for n in group if n in DEFAULT_ASSETS]
     names += st.sidebar.pills(
         category,
         list(group),
         selection_mode="multi",
-        default=[n for n in group if n in DEFAULT_ASSETS],
         format_func=lambda n: f"{n} · {ASSETS[n]}",
         key=f"pills_{category}",
         label_visibility="collapsed",
