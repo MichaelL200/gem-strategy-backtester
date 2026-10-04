@@ -48,24 +48,25 @@ for category, group in CATEGORIES.items():
         label_visibility="collapsed",
     )
 
-# top-n slider — shown only when ≥2 assets are selected so the range is meaningful
-_n_assets = len(names)
-if _n_assets >= 2:
-    st.sidebar.caption("TOP-N ASSETS TO HOLD")
-    top_n = st.sidebar.slider(
-        "Hold top N assets (equal weight)",
-        min_value=1,
-        max_value=_n_assets,
-        value=1,
+# Hold top N: the chosen N is remembered; it is cut down to the number of selected assets.
+n_assets = len(names)
+top_n = 1
+if n_assets >= 2:
+    st.session_state.top_n = min(st.session_state.get("saved_top_n", 1), n_assets)
+    st.sidebar.slider(
+        "Hold top N assets (equal weights)",
+        1,
+        n_assets,
         key="top_n",
+        on_change=lambda: st.session_state.update(saved_top_n=st.session_state.top_n),
     )
-    if top_n == _n_assets:
+    top_n = st.session_state.top_n
+    st.session_state.saved_top_n = top_n
+    if top_n == n_assets:
         st.sidebar.info(
-            f"**N = {top_n}** equals the number of selected assets — "
-            "all assets are held in equal weight and momentum ranking is ignored."
+            f"**N = {top_n}** is the number of selected assets: all are held in equal weights "
+            "and the momentum ranking is ignored."
         )
-else:
-    top_n = 1
 
 # ---- 2. Lookback window ----------------------------------------------------
 st.sidebar.divider()
@@ -155,11 +156,10 @@ cols[2].metric("Total return", f"{result.total_return:.1%}")
 cols[3].metric("Volatility", f"{result.volatility:.1%}")
 cols[4].metric("Sharpe", f"{result.sharpe:.2f}")
 cols[5].metric("Max drawdown", f"{result.max_drawdown:.1%}")
-_last_picks = result.picks.iloc[-1]
-_last_picks_text = ", ".join(label[t] for t in _last_picks)
+last_picks = ", ".join(label[t] for t in result.picks.iloc[-1])
 st.caption(
     f"Backtest: **{result.start:%Y-%m-%d} → {result.end:%Y-%m-%d}** ({duration}) · "
-    f"Latest pick{'s' if len(_last_picks) > 1 else ''}: **{_last_picks_text}** "
+    f"Latest pick{'s' if len(result.picks.iloc[-1]) > 1 else ''}: **{last_picks}** "
     f"(as of {result.picks.index[-1]:%Y-%m-%d})"
 )
 if mode == CUSTOM and result.start > start + pd.Timedelta(days=31):
@@ -174,14 +174,12 @@ fig.update_traces(line={"width": 3.5, "color": GREEN}, selector={"name": "Strate
 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="")
 st.plotly_chart(fig, width="stretch")
 st.plotly_chart(px.area(result.drawdown * 100, title="Strategy drawdown (%)"), width="stretch")
-# Explode multi-asset picks into one row per (date, asset) for the scatter chart.
-_picks_rows = [
-    {"Date": date, "Asset": label[ticker]}
-    for date, tickers in result.picks.items()
-    for ticker in tickers
-]
-_picks_df = pd.DataFrame(_picks_rows).set_index("Date")
+# one row per (date, asset)
+picks = pd.DataFrame(
+    [(date, label[t]) for date, tickers in result.picks.items() for t in tickers],
+    columns=["Date", "Asset"],
+).set_index("Date")
 st.plotly_chart(
-    px.scatter(_picks_df, title="Picks", labels={"value": "", "index": ""}),
+    px.scatter(picks, title="Picks", labels={"value": "", "index": ""}),
     width="stretch",
 )

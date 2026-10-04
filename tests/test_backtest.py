@@ -120,22 +120,33 @@ def test_top_n_picks_contains_n_tickers():
         assert len(pick_list) == 2
 
 
-def test_top_n_equal_weight_equity():
-    """When top_n equals the number of assets the strategy must equal the equal-weight benchmark."""
+def test_top_n_weights_drift_between_rebalances():
+    """No trading between rebalances: each asset keeps its units, so the weights drift."""
     prices = make_prices()
-    result = run(prices, 3, top_n=2)
-    # Every rebalance holds both assets; daily return should equal the mean of the two assets.
-    returns = prices.pct_change(fill_method=None)
-    equal_weight_daily = returns.mean(axis=1)
-    # The first trading day of the strategy is the day after the first pick.
-    strategy_returns = result.equity.pct_change().dropna()
-    eq_returns = equal_weight_daily.reindex(strategy_returns.index)
-    pd.testing.assert_series_equal(
-        strategy_returns.reset_index(drop=True),
-        eq_returns.reset_index(drop=True),
-        check_names=False,
-        atol=1e-10,
-    )
+    result = run(prices, 3, rebalance=12, top_n=2)
+    first, second = result.picks.index[:2]
+    days = result.equity.loc[first:second].index
+    expected = 0.5 * prices.loc[days, "A"] / prices.loc[first, "A"]
+    expected += 0.5 * prices.loc[days, "B"] / prices.loc[first, "B"]
+    pd.testing.assert_series_equal(result.equity.loc[first:second], expected, check_names=False, check_freq=False)
+
+
+def test_top_n_weights_are_equal_again_at_each_rebalance():
+    prices = make_prices()
+    result = run(prices, 3, rebalance=3, top_n=2)
+    second, third = result.picks.index[1:3]
+    days = result.equity.loc[second:third].index
+    growth = result.equity.loc[days] / result.equity[second]
+    expected = 0.5 * prices.loc[days, "A"] / prices.loc[second, "A"]
+    expected += 0.5 * prices.loc[days, "B"] / prices.loc[second, "B"]
+    pd.testing.assert_series_equal(growth, expected, check_names=False, check_freq=False)
+
+
+def test_rebalance_period_matters_when_holding_all_assets():
+    prices = make_prices()
+    monthly = run(prices, 3, rebalance=1, top_n=2).equity
+    yearly = run(prices, 3, rebalance=12, top_n=2).equity
+    assert monthly.iloc[-1] != pytest.approx(yearly.iloc[-1])
 
 
 def test_top_n_greater_than_assets_is_capped():

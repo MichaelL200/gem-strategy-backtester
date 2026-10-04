@@ -14,7 +14,7 @@ TRADING_DAYS = 252
 class Result:
     equity: pd.Series  # strategy value per day, starts at 1.0
     assets: pd.DataFrame  # each asset held alone, starting at the strategy's value on its first day
-    picks: pd.Series  # top-n assets chosen at each month-end (list of tickers per rebalance date)
+    picks: pd.Series  # tickers chosen at each rebalance date (list per date, best first)
     total_return: float
     cagr: float
     volatility: float
@@ -55,11 +55,13 @@ def run(
 ) -> Result:
     """Backtest on daily prices (one column per asset).
 
-    Every `rebalance` months (counted in month-ends, 1 = monthly) the top `top_n` assets with the
+    Every `rebalance` months (counted in month-ends, 1 = monthly) the `top_n` assets with the
     highest return from `lookback` months ago to `skip` months ago are chosen (skip=1 ignores the
-    most recent month); they are held in equal weight (1/top_n each) from the next trading day
-    until the next rebalance. Assets without a price at the start of the window are not eligible.
-    The picks made on the last day of data are shown but not traded.
+    most recent month). The portfolio is set to equal weights (1/n each) at that close and held
+    from the next trading day until the next rebalance; between rebalances the weights drift with
+    prices. Assets without a price at the start of the window are not eligible; if fewer than
+    `top_n` are eligible, only those are held. The picks made on the last day of data are shown
+    but not traded.
 
     Period (all optional):
     - default: trade from the first month-end at which at least one asset has enough history;
@@ -85,39 +87,20 @@ def run(
     if momentum.empty:
         raise ValueError("Not enough price history for this lookback and period")
 
-    rebalance_rows = momentum.iloc[::rebalance]
-    # For each rebalance date pick the top-n tickers by momentum score.
-    # nsmallest(-top_n) == nlargest(top_n) but nlargest is cleaner; we cap at the number of
-    # eligible (non-NaN) assets available on each row.
-    def _top_tickers(row: pd.Series) -> list[str]:
-        valid = row.dropna()
-        n = min(top_n, len(valid))
-        return list(valid.nlargest(n).index)
-
-    picks: pd.Series = rebalance_rows.apply(_top_tickers, axis=1)
-
-    # Build a daily "held basket" as a list of tickers; forward-fill from the day after each pick.
-    held_lists = picks.reindex(prices.index).ffill().shift(1).dropna()
-
-    returns = prices.pct_change(fill_method=None)
-    returns_np = returns.to_numpy()
-    col_index = {name: i for i, name in enumerate(prices.columns)}
-    held_index = returns.index.get_indexer(held_lists.index)
-
-    daily_vals: list[float] = []
-    for row_pos, tickers in zip(held_index, held_lists):
-        if row_pos < 0:
-            daily_vals.append(0.0)
-            continue
-        basket_return = np.nanmean(
-            [returns_np[row_pos, col_index[t]] for t in tickers]
-        )
-        daily_vals.append(float(basket_return) if not np.isnan(basket_return) else 0.0)
-
-    daily = pd.Series(daily_vals, index=held_lists.index)
-
+    picks = momentum.iloc[::rebalance].apply(lambda row: list(row.nlargest(top_n).index), axis=1)
     start = picks.index[0]
-    equity = pd.concat([pd.Series({start: 1.0}), (1.0 + daily).cumprod()])
+
+    # A pick made at the close of day d is bought at that close and earns from day d+1 on.
+    # Between rebalances nothing is traded: each asset's value is weight * price / price at d.
+    weights = pd.DataFrame(0.0, index=picks.index, columns=prices.columns)
+    for date, tickers in picks.items():
+        weights.loc[date, tickers] = 1.0 / len(tickers)
+    days = prices.index[prices.index > start]
+    period = pd.Series(picks.index, picks.index).reindex(prices.index).ffill().shift(1)[days]
+    value = weights.loc[period].to_numpy() * prices.loc[days].to_numpy() / prices.loc[period].to_numpy()
+    growth = pd.Series(np.nansum(value, axis=1), index=days)  # relative to the last rebalance
+    carried = growth.groupby(period).last().cumprod().shift(fill_value=1.0)  # value at rebalance
+    equity = pd.concat([pd.Series({start: 1.0}), growth * carried.reindex(period).to_numpy()])
     if len(equity) < 3:
         raise ValueError("Not enough price history for this lookback")
     return _with_metrics(equity, _held_alone(prices.loc[start:], equity), picks)
