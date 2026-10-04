@@ -149,6 +149,18 @@ def test_rebalance_period_matters_when_holding_all_assets():
     assert monthly.iloc[-1] != pytest.approx(yearly.iloc[-1])
 
 
+def test_top_n_holds_only_assets_that_can_be_ranked():
+    """An asset without history has no momentum: it must not be picked, nor take a share."""
+    prices = make_prices()
+    prices.loc[prices.index[:300], "B"] = float("nan")
+    result = run(prices, 3, top_n=2)
+    first = result.picks.index[0]
+    assert result.picks.iloc[0] == ["A"]
+    day = result.equity.index[10]  # before B has prices
+    assert result.equity[day] == pytest.approx(prices.loc[day, "A"] / prices.loc[first, "A"])
+    assert result.equity.min() > 0.5
+
+
 def test_top_n_greater_than_assets_is_capped():
     """top_n larger than the asset count should not raise; it just holds all available assets."""
     prices = make_prices()  # 2 assets

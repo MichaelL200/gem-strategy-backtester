@@ -87,7 +87,7 @@ def run(
     if momentum.empty:
         raise ValueError("Not enough price history for this lookback and period")
 
-    picks = momentum.iloc[::rebalance].apply(lambda row: list(row.nlargest(top_n).index), axis=1)
+    picks = momentum.iloc[::rebalance].apply(lambda row: list(row.dropna().nlargest(top_n).index), axis=1)
     start = picks.index[0]
 
     # A pick made at the close of day d is bought at that close and earns from day d+1 on.
