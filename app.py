@@ -14,6 +14,8 @@ DEFAULT_LOOKBACK = 12
 DEFAULT_SKIP = 1
 DEFAULT_REBALANCE = 1
 GREEN = "#00C853"
+ORANGE = "#FFA000"  # warnings about the settings
+RED = "#FF4B4B"  # invalid settings
 
 st.set_page_config(page_title="Momentum Backtester", layout="wide")
 st.markdown(
@@ -38,10 +40,10 @@ st.title("Momentum Backtester")
 notices = st.container()  # warnings about the settings; filled further down
 
 
-def highlight(key: str) -> None:
-    """Orange frame around the setting (a widget or container key) a warning is about."""
+def highlight(key: str, color: str = ORANGE) -> None:
+    """Frame (orange by default) around the setting (a widget or container key) a warning is about."""
     st.markdown(
-        f"<style>.st-key-{key}{{outline:2px solid #FFA000;outline-offset:6px;border-radius:6px}}</style>",
+        f"<style>.st-key-{key}{{outline:2px solid {color};outline-offset:6px;border-radius:6px}}</style>",
         unsafe_allow_html=True,
     )
 
@@ -115,12 +117,14 @@ else:
 st.sidebar.divider()
 st.sidebar.markdown("### 2 · Lookback window")
 st.sidebar.caption("How far back each asset's past performance is measured to rank it.")
-lookback = st.sidebar.slider("Look back (months)", 1, 24, DEFAULT_LOOKBACK)
-skip = st.sidebar.slider("Ignore the most recent (months)", 0, 6, DEFAULT_SKIP)
+with st.sidebar.container(key="lookback_window"):
+    lookback = st.slider("Look back (months)", 1, 24, DEFAULT_LOOKBACK)
+    skip = st.slider("Ignore the most recent (months)", 0, 6, DEFAULT_SKIP)
 if lookback > skip:
     st.sidebar.info(f"Window length: **{window_text(lookback, skip)}**")
 else:
     st.sidebar.warning("The lookback must be longer than the ignored months.")
+    highlight("lookback_window", RED)
 
 # ---- 3. Rebalancing --------------------------------------------------------
 st.sidebar.divider()
