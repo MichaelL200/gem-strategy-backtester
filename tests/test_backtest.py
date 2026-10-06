@@ -253,3 +253,32 @@ def test_rebalance_has_no_lookahead():
 def test_rebalance_must_be_at_least_one_month():
     with pytest.raises(ValueError):
         run(make_prices(), 3, rebalance=0)
+
+
+# ---- portfolio composition -------------------------------------------------
+
+
+def test_composition_sums_to_one_and_starts_equal():
+    result = run(make_prices(), 3, top_n=2)
+    assert result.composition.sum(axis=1).to_numpy() == pytest.approx(1.0)
+    assert result.composition.iloc[0].to_list() == [0.5, 0.5]
+    assert result.composition.index.equals(result.equity.index)
+
+
+def test_composition_drifts_and_is_equal_again_after_a_rebalance():
+    prices = make_prices()
+    result = run(prices, 3, rebalance=3, top_n=2)
+    first, second = result.picks.index[:2]
+    held = prices.loc[result.composition.index] / prices.loc[first]
+    day = result.composition.index[10]  # between the rebalances: no trading, so the weights drift
+    assert result.composition.loc[day, "A"] == pytest.approx(held.loc[day, "A"] / held.loc[day].sum())
+    assert result.composition.loc[day, "A"] != pytest.approx(0.5)
+    after = result.composition.index[result.composition.index > second][0]  # the day after: ~equal again
+    assert result.composition.loc[after, "A"] == pytest.approx(0.5, abs=0.05)
+
+
+def test_composition_has_only_assets_that_were_held():
+    result = run(make_prices(), 3, top_n=1)
+    traded = {pick[0] for pick in result.picks.iloc[:-1]}  # the last pick is not traded
+    assert set(result.composition.columns) == traded
+    assert result.composition.sum(axis=1).to_numpy() == pytest.approx(1.0)

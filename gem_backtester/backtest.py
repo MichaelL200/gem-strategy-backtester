@@ -15,6 +15,7 @@ class Result:
     equity: pd.Series  # strategy value per day, starts at 1.0
     assets: pd.DataFrame  # each asset held alone, starting at the strategy's value on its first day
     picks: pd.Series  # tickers chosen at each rebalance date (list per date, best first)
+    composition: pd.DataFrame  # share of each held asset in the portfolio per day (rows sum to 1)
     total_return: float
     cagr: float
     volatility: float
@@ -101,9 +102,12 @@ def run(
     growth = pd.Series(np.nansum(value, axis=1), index=days)  # relative to the last rebalance
     carried = growth.groupby(period).last().cumprod().shift(fill_value=1.0)  # value at rebalance
     equity = pd.concat([pd.Series({start: 1.0}), growth * carried.reindex(period).to_numpy()])
+    shares = pd.DataFrame(np.nan_to_num(value) / growth.to_numpy()[:, None], days, prices.columns)
+    composition = pd.concat([weights.iloc[[0]], shares])
+    composition = composition.loc[:, composition.gt(0).any()]  # only assets that were held
     if len(equity) < 3:
         raise ValueError("Not enough price history for this lookback")
-    return _with_metrics(equity, _held_alone(prices.loc[start:], equity), picks)
+    return _with_metrics(equity, _held_alone(prices.loc[start:], equity), picks, composition)
 
 
 def _held_alone(prices: pd.DataFrame, equity: pd.Series) -> pd.DataFrame:
@@ -117,7 +121,9 @@ def _held_alone(prices: pd.DataFrame, equity: pd.Series) -> pd.DataFrame:
     return pd.DataFrame(lines)
 
 
-def _with_metrics(equity: pd.Series, assets: pd.DataFrame, picks: pd.Series) -> Result:
+def _with_metrics(
+    equity: pd.Series, assets: pd.DataFrame, picks: pd.Series, composition: pd.DataFrame
+) -> Result:
     returns = equity.pct_change().dropna()
     years = (equity.index[-1] - equity.index[0]).days / 365.25
     volatility = float(returns.std(ddof=1) * np.sqrt(TRADING_DAYS))
@@ -125,6 +131,7 @@ def _with_metrics(equity: pd.Series, assets: pd.DataFrame, picks: pd.Series) -> 
         equity=equity,
         assets=assets,
         picks=picks,
+        composition=composition,
         total_return=float(equity.iloc[-1] - 1.0),
         cagr=float(equity.iloc[-1] ** (1.0 / years) - 1.0),
         volatility=volatility,

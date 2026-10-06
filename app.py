@@ -201,20 +201,22 @@ if mode == CUSTOM and result.start > start + pd.Timedelta(days=31):
         f"Trading starts at the first month-end with enough history, {result.start:%Y-%m-%d}."
     )
 
-st.caption("↓ Scroll down for the drawdown and picks charts.")
+st.caption("↓ Scroll down for the drawdown and portfolio composition charts.")
 compare = result.assets.rename(columns=label).assign(Strategy=result.equity)
-fig = px.line(compare, log_y=True, title="Strategy vs. assets held alone (start = 1)")
+colors = {name: px.colors.qualitative.Plotly[i % 10] for i, name in enumerate(compare.columns)}
+fig = px.line(
+    compare, log_y=True, title="Strategy vs. assets held alone (start = 1)", color_discrete_map=colors
+)
 fig.update_traces(line_width=1.2)
 fig.update_traces(line={"width": 3.5, "color": GREEN}, legendrank=1, selector={"name": "Strategy"})
 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", margin={"t": 60})
 st.plotly_chart(fig, width="stretch", key="main_chart")
 st.plotly_chart(px.area(result.drawdown * 100, title="Strategy drawdown (%)"), width="stretch")
-# one row per (date, asset)
-picks = pd.DataFrame(
-    [(date, label[t]) for date, tickers in result.picks.items() for t in tickers],
-    columns=["Date", "Asset"],
-).set_index("Date")
-st.plotly_chart(
-    px.scatter(picks, title="Picks", labels={"value": "", "index": ""}),
-    width="stretch",
+fig = px.area(
+    result.composition.rename(columns=label) * 100,
+    groupnorm="percent",
+    title="Portfolio composition (%)",
+    color_discrete_map=colors,
 )
+fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", yaxis_ticksuffix="%")
+st.plotly_chart(fig, width="stretch")
