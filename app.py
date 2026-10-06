@@ -63,6 +63,7 @@ def select_assets(select: bool) -> None:
 select_col, clear_col = st.sidebar.columns(2)
 select_col.button("Select all", on_click=select_assets, args=(True,), width="stretch")
 clear_col.button("Clear", on_click=select_assets, args=(False,), width="stretch")
+
 names: list[str] = []
 with st.sidebar.container(key="assets"):
     for category, group in CATEGORIES.items():
@@ -88,7 +89,10 @@ if n_assets >= 2:
         1,
         n_assets,
         key="top_n",
-        on_change=lambda: st.session_state.update(saved_top_n=st.session_state.top_n),
+        # .get: the widget key is dropped when the slider is hidden (fewer than 2 assets)
+        on_change=lambda: st.session_state.update(
+            saved_top_n=st.session_state.get("top_n", st.session_state.get("saved_top_n", 1))
+        ),
     )
     top_n = st.session_state.top_n
     st.session_state.saved_top_n = top_n
@@ -150,6 +154,7 @@ except ValueError as error:
 
 label = {ticker: name for name, ticker in ASSETS.items()}
 avail = availability(prices, lookback, skip) if lookback > skip else None
+
 start = end = None
 if mode == CUSTOM:
     first, last = prices.index[0], prices.index[-1]
@@ -190,6 +195,7 @@ cols[2].metric("Total return", f"{result.total_return:.1%}")
 cols[3].metric("Volatility", f"{result.volatility:.1%}")
 cols[4].metric("Sharpe", f"{result.sharpe:.2f}")
 cols[5].metric("Max drawdown", f"{result.max_drawdown:.1%}")
+
 last_picks = ", ".join(label[t] for t in result.picks.iloc[-1])
 st.caption(
     f"Backtest: **{result.start:%Y-%m-%d} → {result.end:%Y-%m-%d}** ({duration}) · "
@@ -200,8 +206,8 @@ if mode == CUSTOM and result.start > start + pd.Timedelta(days=31):
     st.caption(
         f"Trading starts at the first month-end with enough history, {result.start:%Y-%m-%d}."
     )
-
 st.caption("↓ Scroll down for the drawdown and portfolio composition charts.")
+
 compare = result.assets.rename(columns=label).assign(Strategy=result.equity)
 colors = {name: px.colors.qualitative.Plotly[i % 10] for i, name in enumerate(compare.columns)}
 fig = px.line(
@@ -211,7 +217,9 @@ fig.update_traces(line_width=1.2)
 fig.update_traces(line={"width": 3.5, "color": GREEN}, legendrank=1, selector={"name": "Strategy"})
 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", margin={"t": 60})
 st.plotly_chart(fig, width="stretch", key="main_chart")
+
 st.plotly_chart(px.area(result.drawdown * 100, title="Strategy drawdown (%)"), width="stretch")
+
 fig = px.area(
     result.composition.rename(columns=label) * 100,
     groupnorm="percent",
