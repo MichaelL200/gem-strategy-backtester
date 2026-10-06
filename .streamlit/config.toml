@@ -1,3 +1,8 @@
+# Send charts in full on every rerun instead of as cached hash references.
+# Avoids "Cached ForwardMsg MISS" when sliders are changed quickly.
+[global]
+minCachedMessageSize = 1e12
+
 # Both themes are defined, so Streamlit's settings menu (top right) offers
 # "Use system setting" (default), "Light" and "Dark".
 [theme.light]
