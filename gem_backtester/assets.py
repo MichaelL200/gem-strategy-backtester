@@ -3,6 +3,8 @@
 "USD" is not an ETF: it is plain cash in dollars (price 1.0, return 0%), see data.py.
 """
 
+import re
+
 CATEGORIES = {
     "Crypto": {
             "Bitcoin": "BTC-USD",
@@ -42,3 +44,11 @@ CATEGORIES = {
 }
 
 ASSETS = {name: ticker for group in CATEGORIES.values() for name, ticker in group.items()}
+
+
+def normalize_ticker(text: str) -> str:
+    """A Yahoo Finance symbol typed by the user (e.g. nvda, ^GSPC, EURUSD=X) in upper case."""
+    ticker = text.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.^=-]{1,15}", ticker):
+        raise ValueError(f"'{text.strip()}' is not a valid ticker")
+    return ticker

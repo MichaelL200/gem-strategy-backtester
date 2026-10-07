@@ -5,7 +5,7 @@ import plotly.express as px
 import streamlit as st
 
 from gem_backtester import backtest
-from gem_backtester.assets import ASSETS, CATEGORIES
+from gem_backtester.assets import CATEGORIES, normalize_ticker
 from gem_backtester.data import load_prices
 from gem_backtester.periods import ALL, COMMON, CUSTOM, MODES, availability, duration_text, window_text
 
@@ -57,18 +57,45 @@ def prices_for(tickers: tuple[str, ...]) -> pd.DataFrame:
 st.sidebar.markdown("### 1 · Assets")
 
 
+def categories() -> dict[str, dict[str, str]]:
+    """The built-in categories plus the tickers added by the user (name = ticker)."""
+    custom = st.session_state.get("custom_tickers", [])
+    return {**CATEGORIES, **({"Custom": {t: t for t in custom}} if custom else {})}
+
+
+def all_assets() -> dict[str, str]:
+    return {name: ticker for group in categories().values() for name, ticker in group.items()}
+
+
 def select_assets(select: bool) -> None:
-    for category, group in CATEGORIES.items():
+    for category, group in categories().items():
         st.session_state[f"pills_{category}"] = list(group) if select else []
+
+
+def add_ticker() -> None:
+    """Add a ticker typed by the user; it is downloaded now, so one without data is refused."""
+    st.session_state.pop("ticker_error", None)
+    try:
+        ticker = normalize_ticker(st.session_state.new_ticker)
+        known = {t: name for name, t in all_assets().items()}
+        if ticker in known:
+            raise ValueError(f"{ticker} is already in the list ({known[ticker]})")
+        load_prices([ticker])
+    except Exception as error:
+        st.session_state.ticker_error = f"Could not add the ticker: {error}"
+        return
+    st.session_state.custom_tickers = [*st.session_state.get("custom_tickers", []), ticker]
+    st.session_state["pills_Custom"] = [*st.session_state.get("pills_Custom", []), ticker]
 
 
 select_col, clear_col = st.sidebar.columns(2)
 select_col.button("Select all", on_click=select_assets, args=(True,), width="stretch")
 clear_col.button("Clear", on_click=select_assets, args=(False,), width="stretch")
 
+assets = all_assets()
 names: list[str] = []
 with st.sidebar.container(key="assets"):
-    for category, group in CATEGORIES.items():
+    for category, group in categories().items():
         st.caption(category.upper())
         if f"pills_{category}" not in st.session_state:  # first run: the default assets
             st.session_state[f"pills_{category}"] = [n for n in group if n in DEFAULT_ASSETS]
@@ -76,10 +103,25 @@ with st.sidebar.container(key="assets"):
             category,
             list(group),
             selection_mode="multi",
-            format_func=lambda n: f"{n} · {ASSETS[n]}",
+            format_func=lambda n: n if n == assets[n] else f"{n} · {assets[n]}",
             key=f"pills_{category}",
             label_visibility="collapsed",
         )
+
+with st.sidebar.container(key="add_ticker"):
+    st.caption("ADD YOUR OWN TICKER")
+    with st.form("add_ticker_form", clear_on_submit=True, border=False):
+        st.text_input(
+            "Add your own ticker",
+            key="new_ticker",
+            placeholder="e.g. NVDA",
+            label_visibility="collapsed",
+        )
+        st.form_submit_button("Add", on_click=add_ticker)
+    st.caption("Any Yahoo Finance symbol, e.g. ^GSPC, EURUSD=X, BTC-USD.")
+if "ticker_error" in st.session_state:  # shown once, right after the failed attempt
+    notices.warning(st.session_state.pop("ticker_error"))
+    highlight("add_ticker")
 
 # Hold top N: the chosen N is remembered; it is cut down to the number of selected assets.
 n_assets = len(names)
@@ -151,12 +193,12 @@ if not names:
     st.stop()
 
 try:
-    prices = prices_for(tuple(ASSETS[n] for n in names))
+    prices = prices_for(tuple(assets[n] for n in names))
 except ValueError as error:
     st.error(str(error))
     st.stop()
 
-label = {ticker: name for name, ticker in ASSETS.items()}
+label = {ticker: name for name, ticker in assets.items()}
 avail = availability(prices, lookback, skip) if lookback > skip else None
 
 start = end = None

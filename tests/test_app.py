@@ -17,6 +17,8 @@ def app(monkeypatch):
     rng = np.random.default_rng(0)
 
     def fake_load(ticker):
+        if ticker == "NOPE":
+            raise ValueError("No price data for NOPE")
         return pd.Series(100 * np.cumprod(1 + rng.normal(0.0003, 0.01, len(index))), index=index)
 
     monkeypatch.setattr(data, "_load", fake_load)
@@ -76,3 +78,43 @@ def test_single_asset_shows_a_warning_and_the_charts(app):
     assert len(app.metric) == 6
     assert len(app.get("plotly_chart")) == 3
     assert "Latest pick: **S&P 500**" in " ".join(c.value for c in app.caption)
+
+
+def add_ticker(app, text):
+    app.text_input(key="new_ticker").set_value(text)
+    app.sidebar.button[2].click().run()  # the form's "Add" button (after Select all and Clear)
+
+
+def test_custom_ticker_is_added_and_selected(app):
+    add_ticker(app, " nvda ")
+    assert not app.exception
+    assert not app.warning
+    assert selected(app)["Custom"] == ["NVDA"]
+    assert len(app.metric) == 6  # the backtest runs with the new asset
+
+    app.sidebar.button[1].click().run()  # Clear
+    assert selected(app)["Custom"] == []
+    app.sidebar.button[0].click().run()  # Select all
+    assert selected(app)["Custom"] == ["NVDA"]
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("NOPE", "No price data for NOPE"),  # nothing to download
+        ("spy", "SPY is already in the list (S&P 500)"),
+        ("a/b", "'a/b' is not a valid ticker"),
+        ("", "'' is not a valid ticker"),
+    ],
+)
+def test_bad_custom_ticker_is_refused_with_a_warning(app, text, message):
+    add_ticker(app, text)
+    assert not app.exception
+    assert [w.value for w in app.warning if w.value.startswith("Could not")] == [
+        f"Could not add the ticker: {message}"
+    ]
+    assert "st-key-add_ticker" in " ".join(m.value for m in app.markdown)
+    assert "Custom" not in selected(app)
+
+    app.run()  # the warning is shown once
+    assert not [w for w in app.warning if w.value.startswith("Could not")]
