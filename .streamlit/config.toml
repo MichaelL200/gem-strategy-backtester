@@ -3,6 +3,10 @@
 [global]
 minCachedMessageSize = 1e12
 
+# Run in a headless mode
+[server]
+headless = true
+
 # Both themes are defined, so Streamlit's settings menu (top right) offers
 # "Use system setting" (default), "Light" and "Dark".
 [theme.light]
