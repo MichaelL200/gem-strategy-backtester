@@ -4,6 +4,10 @@
 """
 
 CATEGORIES = {
+    "Crypto": {
+            "Bitcoin": "BTC-USD",
+            "Ethereum": "ETH-USD",
+    },
     "Equities": {
         "S&P 500": "SPY",
         "Nasdaq 100": "QQQ",
@@ -16,13 +20,13 @@ CATEGORIES = {
         "S&P Latin America 40": "ILF",
         "MSCI Poland": "EPOL",
     },
+    "Real Estate": {
+            "Vanguard Real Estate": "VNQ",
+        },
     "Commodities": {
         "Gold": "GLD",
         "Silver": "SLV",
         "Broad Commodities": "DBC",
-    },
-    "Real Estate": {
-        "Vanguard Real Estate": "VNQ",
     },
     "Bonds": {
         "Bonds 7-10Y": "IEF",
