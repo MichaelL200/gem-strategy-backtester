@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from gem_backtester.backtest import run
+from gem_backtester.periods import duration_text
 
 
 def make_prices() -> pd.DataFrame:
@@ -183,19 +184,36 @@ def test_top_n_slow_rebalance():
     assert list(result.picks.index) == list(run(prices, 3, rebalance=3).picks.index)
 
 
+def test_custom_period_covers_the_whole_selected_period():
+    """A selected year is a year: 2021-01-01 to 2022-01-01 is not 11 months."""
+    result = run(make_prices(), 3, start="2021-01-01", end="2022-01-01")
+    assert result.start == pd.Timestamp("2020-12-31")  # the close before the first day
+    assert result.end == pd.Timestamp("2021-12-31")  # the last trading day
+    assert duration_text(result.start, result.end) == "1 year"
+    assert result.equity.index[1] == pd.Timestamp("2021-01-01")  # earns from the first day
+
+
 def test_custom_period_bounds():
     prices = make_prices()
     result = run(prices, 3, start="2020-12-31", end="2021-09-30")
-    assert result.start == pd.Timestamp("2020-12-31")
+    assert result.start == pd.Timestamp("2020-12-30")
+    assert result.equity.index[1] == pd.Timestamp("2020-12-31")
     assert result.end <= pd.Timestamp("2021-09-30")
 
 
 def test_custom_start_uses_earlier_history_for_first_signal():
     prices = make_prices()
-    # The first pick on 2020-12-31 is based on the 3 months before the start date.
-    result = run(prices, 3, start="2020-12-31")
-    assert result.picks.index[0] == pd.Timestamp("2020-12-31")
-    assert result.picks.iloc[0] == run(prices, 3).picks.loc["2020-12-31"]
+    # Starting mid-month: the position is bought the day before, on the last month-end signal.
+    result = run(prices, 3, start="2021-03-15")
+    assert result.start == pd.Timestamp("2021-03-12")
+    assert result.picks.index[1] == pd.Timestamp("2021-03-31")
+    assert result.picks.iloc[0] == run(prices, 3).picks.loc["2021-02-26"]
+
+
+def test_custom_start_without_earlier_history_waits_for_the_first_signal():
+    prices = make_prices()
+    result = run(prices, 3, start="2020-01-01")
+    assert result.picks.index[0] == run(prices, 3).picks.index[0] > pd.Timestamp("2020-01-01")
 
 
 def test_end_date_has_no_lookahead():

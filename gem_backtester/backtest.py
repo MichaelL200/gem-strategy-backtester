@@ -68,8 +68,11 @@ def run(
     - default: trade from the first month-end at which at least one asset has enough history;
       assets join the ranking as soon as they have enough history of their own.
     - `common=True`: trade only from the first month-end at which every asset is eligible.
-    - `start` / `end`: first pick at the first month-end on or after `start`; data after `end`
-      is ignored. Prices before `start` are still used for the first signals (no look-ahead).
+    - `start` / `end`: the strategy earns from the first trading day on or after `start` (the
+      portfolio is set at the close before it, from the last month-end signal known by then) up
+      to `end`; data after `end` is ignored. Prices before `start` are still used for the first
+      signals (no look-ahead). If there is no signal before `start`, trading starts at the first
+      month-end on or after it.
 
     The first pick is always the first rebalance; later ones follow every `rebalance` month-ends.
     """
@@ -83,12 +86,21 @@ def run(
     if end is not None:
         prices = prices.loc[: pd.Timestamp(end)]
     momentum = momentum_table(prices, lookback, skip).dropna(how="any" if common else "all")
+    bought = None  # when the first position is bought, if not at the signal's own close
     if start is not None:
-        momentum = momentum.loc[momentum.index >= pd.Timestamp(start)]
+        first_day = prices.index[prices.index >= pd.Timestamp(start)][:1]
+        known = momentum.index[momentum.index < first_day[0]] if len(first_day) else []
+        if len(known):  # a signal exists before the period: hold it from the period's first day
+            momentum = momentum.loc[momentum.index >= known[-1]]
+            bought = prices.index[prices.index < first_day[0]][-1]
+        else:
+            momentum = momentum.loc[momentum.index >= pd.Timestamp(start)]
     if momentum.empty:
         raise ValueError("Not enough price history for this lookback and period")
 
     picks = momentum.iloc[::rebalance].apply(lambda row: list(row.dropna().nlargest(top_n).index), axis=1)
+    if bought is not None:  # the portfolio is set at the close before the first day of the period
+        picks.index = pd.DatetimeIndex([bought, *picks.index[1:]])
     start = picks.index[0]
 
     # A pick made at the close of day d is bought at that close and earns from day d+1 on.
