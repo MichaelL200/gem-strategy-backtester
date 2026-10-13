@@ -81,7 +81,7 @@ def test_single_asset_shows_a_warning_and_the_charts(app):
 
 
 def add_ticker(app, text):
-    app.text_input(key="new_ticker").set_value(text)
+    app.text_area(key="new_ticker").set_value(text)
     app.sidebar.button[2].click().run()  # the form's "Add" button (after Select all and Clear)
 
 
@@ -96,6 +96,25 @@ def test_custom_ticker_is_added_and_selected(app):
     assert selected(app)["Custom"] == []
     app.sidebar.button[0].click().run()  # Select all
     assert selected(app)["Custom"] == ["NVDA"]
+
+
+def test_many_custom_tickers_are_added_at_once(app):
+    add_ticker(app, "nvda, aapl;msft\nTSLA | ^GSPC  nvda")
+    assert not app.exception
+    assert not app.warning
+    assert selected(app)["Custom"] == ["NVDA", "AAPL", "MSFT", "TSLA", "^GSPC"]
+    assert len(app.metric) == 6
+
+
+def test_good_tickers_are_kept_when_others_are_refused(app):
+    add_ticker(app, "NVDA, NOPE; spy a/b, AAPL")
+    assert not app.exception
+    assert selected(app)["Custom"] == ["NVDA", "AAPL"]
+    assert [w.value for w in app.warning] == [
+        "Could not add 3 of 5 tickers: No price data for NOPE; "
+        "SPY is already in the list (S&P 500); 'a/b' is not a valid ticker"
+    ]
+    assert "st-key-add_ticker" in " ".join(m.value for m in app.markdown)
 
 
 @pytest.mark.parametrize(

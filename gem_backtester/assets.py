@@ -52,3 +52,20 @@ def normalize_ticker(text: str) -> str:
     if not re.fullmatch(r"[A-Z0-9.^=-]{1,15}", ticker):
         raise ValueError(f"'{text.strip()}' is not a valid ticker")
     return ticker
+
+
+_SEPARATORS = re.compile(r"[\s,;|]+")  # spaces, tabs, new lines, commas, semicolons, pipes
+_WRAPPERS = "\"'“”„‘’()[]{}<>$"  # quotes, brackets and $ around a symbol: "NVDA", [AAPL], $MSFT
+
+
+def split_tickers(text: str) -> list[str]:
+    """The symbols in a text typed or pasted by the user (any mix of the separators), no repeats.
+
+    The symbols are not checked here (see normalize_ticker); a repeat differs only by case.
+    """
+    tokens: dict[str, str] = {}
+    for part in _SEPARATORS.split(text):
+        token = part.strip(_WRAPPERS)
+        if token:
+            tokens.setdefault(token.upper(), token)
+    return list(tokens.values())

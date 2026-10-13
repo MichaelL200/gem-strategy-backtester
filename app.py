@@ -5,7 +5,7 @@ import plotly.express as px
 import streamlit as st
 
 from gem_backtester import backtest
-from gem_backtester.assets import CATEGORIES, normalize_ticker
+from gem_backtester.assets import CATEGORIES, normalize_ticker, split_tickers
 from gem_backtester.data import load_prices
 from gem_backtester.periods import ALL, COMMON, CUSTOM, MODES, availability, duration_text, window_text
 
@@ -72,20 +72,37 @@ def select_assets(select: bool) -> None:
         st.session_state[f"pills_{category}"] = list(group) if select else []
 
 
-def add_ticker() -> None:
-    """Add a ticker typed by the user; it is downloaded now, so one without data is refused."""
+def add_tickers() -> None:
+    """Add the tickers typed or pasted by the user; each is downloaded now, so one without data is refused.
+
+    The valid ones are added even if others in the same text are refused.
+    """
     st.session_state.pop("ticker_error", None)
-    try:
-        ticker = normalize_ticker(st.session_state.new_ticker)
-        known = {t: name for name, t in all_assets().items()}
-        if ticker in known:
-            raise ValueError(f"{ticker} is already in the list ({known[ticker]})")
-        load_prices([ticker])
-    except Exception as error:
-        st.session_state.ticker_error = f"Could not add the ticker: {error}"
-        return
-    st.session_state.custom_tickers = [*st.session_state.get("custom_tickers", []), ticker]
-    st.session_state["pills_Custom"] = [*st.session_state.get("pills_Custom", []), ticker]
+    text = st.session_state.new_ticker
+    tokens = split_tickers(text) or [text]  # nothing found: let normalize_ticker explain
+    known = {t: name for name, t in all_assets().items()}
+    added: list[str] = []
+    errors: list[str] = []
+    for token in tokens:
+        try:
+            ticker = normalize_ticker(token)
+            if ticker in known:
+                raise ValueError(f"{ticker} is already in the list ({known[ticker]})")
+            load_prices([ticker])
+        except Exception as error:
+            errors.append(str(error))
+            continue
+        known[ticker] = ticker
+        added.append(ticker)
+    if added:
+        st.session_state.custom_tickers = [*st.session_state.get("custom_tickers", []), *added]
+        st.session_state["pills_Custom"] = [*st.session_state.get("pills_Custom", []), *added]
+    if len(tokens) == 1 and errors:
+        st.session_state.ticker_error = f"Could not add the ticker: {errors[0]}"
+    elif errors:
+        st.session_state.ticker_error = (
+            f"Could not add {len(errors)} of {len(tokens)} tickers: " + "; ".join(errors)
+        )
 
 
 select_col, clear_col = st.sidebar.columns(2)
@@ -109,16 +126,20 @@ with st.sidebar.container(key="assets"):
         )
 
 with st.sidebar.container(key="add_ticker"):
-    st.caption("ADD YOUR OWN TICKER")
+    st.caption("ADD YOUR OWN TICKERS")
     with st.form("add_ticker_form", clear_on_submit=True, border=False):
-        st.text_input(
-            "Add your own ticker",
+        st.text_area(
+            "Add your own tickers",
             key="new_ticker",
-            placeholder="e.g. NVDA",
+            placeholder="e.g. NVDA, AAPL, MSFT",
+            height=100,
             label_visibility="collapsed",
         )
-        st.form_submit_button("Add", on_click=add_ticker)
-    st.caption("Any Yahoo Finance symbol, e.g. ^GSPC, EURUSD=X, BTC-USD.")
+        st.form_submit_button("Add", on_click=add_tickers)
+    st.caption(
+        "Any Yahoo Finance symbols, e.g. ^GSPC, EURUSD=X, BTC-USD. Add many at once, "
+        "separated by spaces, commas, semicolons, | or new lines."
+    )
 if "ticker_error" in st.session_state:  # shown once, right after the failed attempt
     notices.warning(st.session_state.pop("ticker_error"))
     highlight("add_ticker")
