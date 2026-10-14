@@ -232,7 +232,7 @@ period_box = st.sidebar.container()  # the dates and the data table of section 4
 # ---- 5. Currency -----------------------------------------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 5 · Currency")
-st.sidebar.caption("The currency the backtest is calculated in; the USD prices are converted daily.")
+st.sidebar.caption("The currency the backtest is calculated in; prices are converted daily.")
 currency = st.sidebar.selectbox(
     "Currency", CURRENCIES, key="currency", label_visibility="collapsed"
 )
@@ -247,6 +247,12 @@ except ValueError as error:
     st.stop()
 
 label = {ticker: name for name, ticker in assets.items()}
+if prices.attrs.get("unknown_currency"):
+    notices.warning(
+        f"The currency of {', '.join(prices.attrs['unknown_currency'])} could not be found, "
+        "so its prices are taken as USD."
+    )
+    highlight("assets")
 avail = availability(prices, lookback, skip) if lookback > skip else None
 
 start = end = None

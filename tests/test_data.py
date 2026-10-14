@@ -81,3 +81,83 @@ def test_usd_needs_no_exchange_rate(monkeypatch):
 def test_unknown_currency_is_refused():
     with pytest.raises(ValueError):
         data.load_prices(["SPY"], "XXX")
+
+
+# ---- the currency a ticker is quoted in --------------------------------------
+
+INDEX = pd.bdate_range("2020-01-01", periods=4)
+
+
+def quoted_in(monkeypatch, quotes, rates):
+    """Prices are 100 on every day; `rates` are the daily Yahoo rates (units per 1 USD)."""
+
+    def fake_load(ticker):
+        return pd.Series(rates[ticker] if ticker.endswith("=X") else 100.0, index=INDEX)
+
+    monkeypatch.setattr(data, "_load", fake_load)
+    monkeypatch.setattr(data, "_quote_currency", lambda t: quotes[t])
+
+
+def test_a_ticker_quoted_in_euros_is_converted_to_usd(monkeypatch):
+    quoted_in(monkeypatch, {"SAP.DE": "EUR"}, {"EUR=X": 0.8})  # 0.8 EUR per USD
+    assert data.load_prices(["SAP.DE"])["SAP.DE"].tolist() == pytest.approx([125.0] * 4)
+
+
+def test_a_ticker_is_converted_from_its_currency_to_the_chosen_one(monkeypatch):
+    quoted_in(monkeypatch, {"PKO.WA": "PLN"}, {"PLN=X": 4.0, "GBP=X": 0.5})
+    prices = data.load_prices(["PKO.WA"], "GBP")
+    assert prices["PKO.WA"].tolist() == pytest.approx([12.5] * 4)  # 100 PLN = 25 USD = 12.5 GBP
+
+
+def test_ticker_quoted_in_the_chosen_currency_is_not_converted(monkeypatch):
+    quoted_in(monkeypatch, {"SAP.DE": "EUR"}, {})  # no rate needed
+    assert data.load_prices(["SAP.DE"], "EUR")["SAP.DE"].tolist() == [100.0] * 4
+
+
+def test_pence_are_divided_by_100(monkeypatch):
+    quoted_in(monkeypatch, {"SHEL.L": "GBp"}, {"GBP=X": 0.5})
+    assert data.load_prices(["SHEL.L"], "GBP")["SHEL.L"].tolist() == pytest.approx([1.0] * 4)
+    assert data.load_prices(["SHEL.L"])["SHEL.L"].tolist() == pytest.approx([2.0] * 4)  # USD
+
+
+def test_unknown_currency_is_taken_as_usd_and_reported(monkeypatch):
+    quoted_in(monkeypatch, {"MYSTERY": None, "SPY": "USD"}, {})
+    prices = data.load_prices(["MYSTERY", "SPY"])
+    assert prices["MYSTERY"].tolist() == [100.0] * 4
+    assert prices.attrs["unknown_currency"] == ["MYSTERY"]
+
+
+def test_built_in_tickers_are_in_usd_without_asking_yahoo(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yfinance", None)  # any import would fail
+    assert data._quote_currency("SPY") == "USD"
+    assert data._quote_currency(data.CASH) == "USD"
+
+
+def test_the_currency_from_yahoo_is_cached(monkeypatch, tmp_path):
+    monkeypatch.setattr(data, "CACHE_DIR", tmp_path)
+    asked = []
+
+    class FakeYahoo:
+        class Ticker:
+            def __init__(self, ticker):
+                asked.append(ticker)
+                self.fast_info = {"currency": "EUR"}
+
+    monkeypatch.setitem(sys.modules, "yfinance", FakeYahoo)
+    assert data._quote_currency("SAP.DE") == "EUR"
+    assert data._quote_currency("SAP.DE") == "EUR"
+    assert asked == ["SAP.DE"]
+
+
+@pytest.mark.parametrize("answer", ["not a currency", None, 5])
+def test_nonsense_from_yahoo_is_no_currency(monkeypatch, tmp_path, answer):
+    monkeypatch.setattr(data, "CACHE_DIR", tmp_path)
+
+    class FakeYahoo:
+        class Ticker:
+            def __init__(self, ticker):
+                self.fast_info = {"currency": answer}
+
+    monkeypatch.setitem(sys.modules, "yfinance", FakeYahoo)
+    assert data._quote_currency("XYZ") is None
+    assert not list(tmp_path.iterdir())
