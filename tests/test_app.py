@@ -22,6 +22,7 @@ def app(monkeypatch):
         return pd.Series(100 * np.cumprod(1 + rng.normal(0.0003, 0.01, len(index))), index=index)
 
     monkeypatch.setattr(data, "_load", fake_load)
+    monkeypatch.setattr(data, "_quote_currency", lambda t: None if t == "MYSTERY" else "USD")
     return AppTest.from_file(APP, default_timeout=60).run()
 
 
@@ -163,3 +164,13 @@ def test_currency_choice(app):
     assert not app.exception
     assert len(app.metric) == 6
     assert "Currency: **EUR**" in " ".join(c.value for c in app.caption)
+
+
+def test_ticker_without_a_known_currency_gets_a_warning_but_is_added(app):
+    add_ticker(app, "mystery")
+    assert not app.exception
+    assert selected(app)["Custom"] == ["MYSTERY"]
+    assert [w.value for w in app.warning] == [
+        "The currency of MYSTERY could not be found, so its prices are taken as USD."
+    ]
+    assert "st-key-assets" in " ".join(m.value for m in app.markdown)
