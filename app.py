@@ -6,7 +6,7 @@ import streamlit as st
 
 from gem_backtester import backtest
 from gem_backtester.assets import CATEGORIES, normalize_ticker, split_tickers
-from gem_backtester.data import load_prices
+from gem_backtester.data import CURRENCIES, load_prices
 from gem_backtester.periods import ALL, COMMON, CUSTOM, MODES, availability, duration_text, window_text
 
 DEFAULT_ASSETS = {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
@@ -55,8 +55,8 @@ def highlight(key: str, color: str = ORANGE) -> None:
 
 
 @st.cache_data(ttl=12 * 3600)
-def prices_for(tickers: tuple[str, ...]) -> pd.DataFrame:
-    return load_prices(list(tickers))
+def prices_for(tickers: tuple[str, ...], currency: str) -> pd.DataFrame:
+    return load_prices(list(tickers), currency)
 
 
 # ---- 1. Assets -------------------------------------------------------------
@@ -227,11 +227,21 @@ mode = st.sidebar.radio(
     ],
 )
 
+period_box = st.sidebar.container()  # the dates and the data table of section 4 go here
+
+# ---- 5. Currency -----------------------------------------------------------
+st.sidebar.divider()
+st.sidebar.markdown("### 5 · Currency")
+st.sidebar.caption("The currency the backtest is calculated in; the USD prices are converted daily.")
+currency = st.sidebar.selectbox(
+    "Currency", CURRENCIES, key="currency", label_visibility="collapsed"
+)
+
 if not names:
     st.stop()
 
 try:
-    prices = prices_for(tuple(assets[n] for n in names))
+    prices = prices_for(tuple(assets[n] for n in names), currency)
 except ValueError as error:
     st.error(str(error))
     st.stop()
@@ -244,7 +254,7 @@ if mode == CUSTOM:
     first, last = prices.index[0], prices.index[-1]
     ranked = avail["Ranked from"] if avail is not None else None
     common_from = ranked.max() if ranked is not None and ranked.notna().all() else first
-    picked = st.sidebar.date_input(
+    picked = period_box.date_input(
         "From – to",
         value=(min(common_from, last).date(), last.date()),
         min_value=first.date(),
@@ -252,12 +262,12 @@ if mode == CUSTOM:
         format="YYYY-MM-DD",
     )
     if len(picked) != 2:
-        st.sidebar.info("Pick the end date.")
+        period_box.info("Pick the end date.")
         st.stop()
     start, end = (pd.Timestamp(d) for d in picked)
 
 if avail is not None:
-    with st.sidebar.expander("Data available per asset"):
+    with period_box.expander("Data available per asset"):
         table = avail.rename(index=label).apply(lambda c: c.dt.strftime("%Y-%m-%d"))
         st.dataframe(table.fillna("not enough history"), width="stretch")
         st.caption("'Ranked from' = first month-end with a full lookback window.")
@@ -298,8 +308,9 @@ picks = "; ".join(
     f"{', '.join(label[t] for t in r.picks.iloc[-1])}" + (f" ({name})" if both else "")
     for name, r in results.items()
 )
+in_currency = f"Currency: **{currency}** · " if currency != "USD" else ""
 st.caption(
-    f"Backtest: **{result.start:%Y-%m-%d} → {result.end:%Y-%m-%d}** ({duration}) · "
+    f"Backtest: **{result.start:%Y-%m-%d} → {result.end:%Y-%m-%d}** ({duration}) · {in_currency}"
     f"Latest pick{'s' if both or len(result.picks.iloc[-1]) > 1 else ''}: **{picks}** "
     f"(as of {result.picks.index[-1]:%Y-%m-%d})"
 )

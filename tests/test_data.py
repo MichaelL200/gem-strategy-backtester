@@ -51,3 +51,33 @@ def test_damaged_cache_is_downloaded_again(monkeypatch, tmp_path, content):
     assert list(prices["DBC"]) == [1.0, 2.0, 3.0]
     assert isinstance(prices.index, pd.DatetimeIndex)
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_currency_multiplies_the_prices_by_the_daily_rate(monkeypatch):
+    index = pd.bdate_range("2020-01-01", periods=5)
+    rate = pd.Series([0.9, 0.8, 0.5], index=index[[1, 2, 4]])  # EUR per USD; no rate on 2 days
+
+    def fake_load(ticker):
+        return rate if ticker == "EUR=X" else pd.Series(100.0, index=index)
+
+    monkeypatch.setattr(data, "_load", fake_load)
+    prices = data.load_prices(["SPY", data.CASH], "EUR")
+    assert prices.index.equals(index[1:])  # no rate yet on the first day
+    assert prices["SPY"].tolist() == pytest.approx([90, 80, 80, 50])  # a missing day keeps the last rate
+    assert prices[data.CASH].tolist() == pytest.approx([0.9, 0.8, 0.8, 0.5])  # dollars move with the rate
+
+
+def test_usd_needs_no_exchange_rate(monkeypatch):
+    index = pd.bdate_range("2020-01-01", periods=3)
+
+    def fake_load(ticker):
+        assert not ticker.endswith("=X")
+        return pd.Series(100.0, index=index)
+
+    monkeypatch.setattr(data, "_load", fake_load)
+    assert data.load_prices(["SPY"]).iloc[0, 0] == 100.0
+
+
+def test_unknown_currency_is_refused():
+    with pytest.raises(ValueError):
+        data.load_prices(["SPY"], "XXX")

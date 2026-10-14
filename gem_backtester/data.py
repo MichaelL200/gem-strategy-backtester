@@ -12,14 +12,26 @@ import pandas as pd
 CACHE_DIR = Path("data/cache")
 MAX_AGE_SECONDS = 12 * 3600
 CASH = "USD"  # not downloaded: price 1.0 on every day (0% return)
+CURRENCIES = ("USD", "EUR", "GBP", "PLN", "CHF", "JPY", "CAD", "AUD")  # the prices are in USD
 
 
-def load_prices(tickers: list[str]) -> pd.DataFrame:
-    """Daily adjusted close, one column per ticker (CASH is 1.0 on every day)."""
+def load_prices(tickers: list[str], currency: str = "USD") -> pd.DataFrame:
+    """Daily adjusted close, one column per ticker (CASH is 1.0 on every day).
+
+    The prices are in USD; for another currency they are multiplied by the daily rate Yahoo
+    gives as "<currency>=X" (units of the currency per 1 USD, e.g. EUR=X), so the returns
+    include the exchange rate. Days before the first rate are dropped.
+    """
+    if currency not in CURRENCIES:
+        raise ValueError(f"Unknown currency {currency}")
     prices = pd.DataFrame({t: _load(t) for t in tickers if t != CASH}).sort_index()
     if CASH in tickers:
         prices[CASH] = 1.0
-    return prices[list(tickers)]
+    prices = prices[list(tickers)]
+    if currency != "USD":
+        rate = _load(f"{currency}=X").reindex(prices.index, method="ffill")  # no look-ahead
+        prices = prices.mul(rate, axis=0).dropna(how="all")
+    return prices
 
 
 def _load(ticker: str) -> pd.Series:

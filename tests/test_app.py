@@ -153,3 +153,13 @@ def test_strategy_choice_normal_volatility_adjusted_or_both(app):
     assert len(app.metric) == 12
     assert len(app.get("plotly_chart")) == 4  # main, drawdown and one composition per strategy
     assert "(Normal)" in " ".join(c.value for c in app.caption)
+
+
+def test_currency_choice(app):
+    assert app.selectbox(key="currency").value == "USD"
+    assert "Currency:" not in " ".join(c.value for c in app.caption)
+
+    app.selectbox(key="currency").set_value("EUR").run()
+    assert not app.exception
+    assert len(app.metric) == 6
+    assert "Currency: **EUR**" in " ".join(c.value for c in app.caption)
