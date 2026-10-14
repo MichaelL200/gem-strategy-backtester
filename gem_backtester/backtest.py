@@ -35,13 +35,28 @@ class Result:
         return self.equity.index[-1]
 
 
-def momentum_table(prices: pd.DataFrame, lookback: int, skip: int = 0) -> pd.DataFrame:
+def momentum_table(
+    prices: pd.DataFrame, lookback: int, skip: int = 0, volatility_adjusted: bool = False
+) -> pd.DataFrame:
     """Month-end momentum: return from `lookback` months ago to `skip` months ago.
+
+    With `volatility_adjusted` that return is divided by the standard deviation of the daily
+    returns over the same window, so a smooth riser beats a wild one; an asset that never moves
+    (cash) scores 0.
 
     `prices` must be sorted and forward-filled. Each row only uses prices up to that month-end.
     """
     month_ends = prices.groupby(prices.index.to_period("M")).tail(1)
-    return month_ends.shift(skip) / month_ends.shift(lookback) - 1.0
+    momentum = month_ends.shift(skip) / month_ends.shift(lookback) - 1.0
+    if not volatility_adjusted:
+        return momentum
+    returns = prices.pct_change(fill_method=None)
+    dates = month_ends.index
+    volatility = pd.DataFrame(np.nan, index=dates, columns=prices.columns)
+    for i in range(lookback, len(dates)):
+        # the first day's return belongs to the period before the window
+        volatility.iloc[i] = returns.loc[dates[i - lookback] : dates[i - skip]].iloc[1:].std()
+    return (momentum / volatility).where(volatility != 0, momentum * 0.0)
 
 
 def run(
@@ -53,12 +68,14 @@ def run(
     common: bool = False,
     rebalance: int = 1,
     top_n: int = 1,
+    volatility_adjusted: bool = False,
 ) -> Result:
     """Backtest on daily prices (one column per asset).
 
     Every `rebalance` months (counted in month-ends, 1 = monthly) the `top_n` assets with the
     highest return from `lookback` months ago to `skip` months ago are chosen (skip=1 ignores the
-    most recent month). The portfolio is set to equal weights (1/n each) at that close and held
+    most recent month; with `volatility_adjusted` the return is divided by the volatility over the
+    same window, see `momentum_table`). The portfolio is set to equal weights (1/n each) at that close and held
     from the next trading day until the next rebalance; between rebalances the weights drift with
     prices. Assets without a price at the start of the window are not eligible; if fewer than
     `top_n` are eligible, only those are held. The picks made on the last day of data are shown
@@ -85,7 +102,8 @@ def run(
     prices = prices.sort_index().ffill()  # a missing day must not drop an asset from the ranking
     if end is not None:
         prices = prices.loc[: pd.Timestamp(end)]
-    momentum = momentum_table(prices, lookback, skip).dropna(how="any" if common else "all")
+    momentum = momentum_table(prices, lookback, skip, volatility_adjusted)
+    momentum = momentum.dropna(how="any" if common else "all")
     bought = None  # when the first position is bought, if not at the signal's own close
     if start is not None:
         first_day = prices.index[prices.index >= pd.Timestamp(start)][:1]

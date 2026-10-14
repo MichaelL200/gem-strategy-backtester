@@ -13,7 +13,13 @@ DEFAULT_ASSETS = {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
 DEFAULT_LOOKBACK = 12
 DEFAULT_SKIP = 1
 DEFAULT_REBALANCE = 1
+STRATEGIES = {  # option -> the strategies to run
+    "Normal": ("Normal",),
+    "Volatility-adjusted": ("Volatility-adjusted",),
+    "Both": ("Normal", "Volatility-adjusted"),
+}
 GREEN = "#00C853"
+PINK = "#FF1493"  # second strategy, when both are shown
 ORANGE = "#FFA000"  # warnings about the settings
 RED = "#FF4B4B"  # invalid settings
 
@@ -176,10 +182,21 @@ else:
     )
     highlight("assets")
 
-# ---- 2. Lookback window ----------------------------------------------------
+# ---- 2. Momentum -----------------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 2 · Lookback window")
-st.sidebar.caption("How far back each asset's past performance is measured to rank it.")
+st.sidebar.markdown("### 2 · Momentum")
+st.sidebar.caption("How each asset's past performance is measured to rank it.")
+strategy = st.sidebar.radio(
+    "Momentum",
+    list(STRATEGIES),
+    label_visibility="collapsed",
+    key="strategy",
+    captions=[
+        "The return over the window",
+        "The return divided by the volatility over the window",
+        "Compare both",
+    ],
+)
 with st.sidebar.container(key="lookback_window"):
     lookback = st.slider("Look back (months)", 1, 24, DEFAULT_LOOKBACK)
     skip = st.slider("Ignore the most recent (months)", 0, 6, DEFAULT_SKIP)
@@ -245,28 +262,45 @@ if avail is not None:
         st.dataframe(table.fillna("not enough history"), width="stretch")
         st.caption("'Ranked from' = first month-end with a full lookback window.")
 
+results = {}
 try:
-    result = backtest.run(
-        prices, lookback, skip, start=start, end=end, common=mode == COMMON,
-        rebalance=rebalance, top_n=top_n,
-    )
+    for name in STRATEGIES[strategy]:
+        results[name] = backtest.run(
+            prices, lookback, skip, start=start, end=end, common=mode == COMMON,
+            rebalance=rebalance, top_n=top_n, volatility_adjusted=name == "Volatility-adjusted",
+        )
 except ValueError as error:
     st.error(str(error))
     st.stop()
 
+result = next(iter(results.values()))  # the period is the same for both
+both = len(results) == 2
 duration = duration_text(result.start, result.end)
-cols = st.columns([2, 1, 1, 1, 1, 1])
-cols[0].metric("Period", duration)
-cols[1].metric("CAGR", f"{result.cagr:.1%}")
-cols[2].metric("Total return", f"{result.total_return:.1%}")
-cols[3].metric("Volatility", f"{result.volatility:.1%}")
-cols[4].metric("Sharpe", f"{result.sharpe:.2f}")
-cols[5].metric("Max drawdown", f"{result.max_drawdown:.1%}")
 
-last_picks = ", ".join(label[t] for t in result.picks.iloc[-1])
+
+def metrics(first_label: str, first_value: str, r: backtest.Result) -> None:
+    cols = st.columns([2, 1, 1, 1, 1, 1])
+    cols[0].metric(first_label, first_value)
+    cols[1].metric("CAGR", f"{r.cagr:.1%}")
+    cols[2].metric("Total return", f"{r.total_return:.1%}")
+    cols[3].metric("Volatility", f"{r.volatility:.1%}")
+    cols[4].metric("Sharpe", f"{r.sharpe:.2f}")
+    cols[5].metric("Max drawdown", f"{r.max_drawdown:.1%}")
+
+
+if both:
+    for name, r in results.items():
+        metrics("Strategy", name, r)
+else:
+    metrics("Period", duration, result)
+
+picks = "; ".join(
+    f"{', '.join(label[t] for t in r.picks.iloc[-1])}" + (f" ({name})" if both else "")
+    for name, r in results.items()
+)
 st.caption(
     f"Backtest: **{result.start:%Y-%m-%d} → {result.end:%Y-%m-%d}** ({duration}) · "
-    f"Latest pick{'s' if len(result.picks.iloc[-1]) > 1 else ''}: **{last_picks}** "
+    f"Latest pick{'s' if both or len(result.picks.iloc[-1]) > 1 else ''}: **{picks}** "
     f"(as of {result.picks.index[-1]:%Y-%m-%d})"
 )
 if mode == CUSTOM and result.start > start + pd.Timedelta(days=31):
@@ -275,23 +309,42 @@ if mode == CUSTOM and result.start > start + pd.Timedelta(days=31):
     )
 st.caption("↓ Scroll down for the drawdown and portfolio composition charts.")
 
-compare = result.assets.rename(columns=label).assign(Strategy=result.equity)
+line_names = {name: f"Strategy ({name})" if both else "Strategy" for name in results}
+line_colors = dict(zip(results, (GREEN, PINK)))
+compare = result.assets.rename(columns=label)
+for name, r in results.items():
+    compare[line_names[name]] = r.equity
 colors = {name: px.colors.qualitative.Plotly[i % 10] for i, name in enumerate(compare.columns)}
 fig = px.line(
     compare, log_y=True, title="Strategy vs. assets held alone (start = 1)", color_discrete_map=colors
 )
 fig.update_traces(line_width=1.2)
-fig.update_traces(line={"width": 3.5, "color": GREEN}, legendrank=1, selector={"name": "Strategy"})
+for name in results:
+    fig.update_traces(
+        line={"width": 3.5, "color": line_colors[name]},
+        legendrank=1,
+        selector={"name": line_names[name]},
+    )
 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", margin={"t": 60})
 st.plotly_chart(fig, width="stretch", key="main_chart")
 
-st.plotly_chart(px.area(result.drawdown * 100, title="Strategy drawdown (%)"), width="stretch")
+if both:  # overlapping lines: areas would be stacked
+    fig = px.line(
+        pd.DataFrame({name: r.drawdown * 100 for name, r in results.items()}),
+        title="Strategy drawdown (%)",
+        color_discrete_map=line_colors,
+    )
+    fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="")
+    st.plotly_chart(fig, width="stretch")
+else:
+    st.plotly_chart(px.area(result.drawdown * 100, title="Strategy drawdown (%)"), width="stretch")
 
-fig = px.area(
-    result.composition.rename(columns=label) * 100,
-    groupnorm="percent",
-    title="Portfolio composition (%)",
-    color_discrete_map=colors,
-)
-fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", yaxis_ticksuffix="%")
-st.plotly_chart(fig, width="stretch")
+for name, r in results.items():
+    fig = px.area(
+        r.composition.rename(columns=label) * 100,
+        groupnorm="percent",
+        title="Portfolio composition (%)" + (f" · {name}" if both else ""),
+        color_discrete_map=colors,
+    )
+    fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", yaxis_ticksuffix="%")
+    st.plotly_chart(fig, width="stretch", key=f"composition_{name}")

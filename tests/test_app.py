@@ -137,3 +137,19 @@ def test_bad_custom_ticker_is_refused_with_a_warning(app, text, message):
 
     app.run()  # the warning is shown once
     assert not [w for w in app.warning if w.value.startswith("Could not")]
+
+
+def test_strategy_choice_normal_volatility_adjusted_or_both(app):
+    assert app.sidebar.radio(key="strategy").value == "Normal"
+    assert len(app.metric) == 6
+
+    app.sidebar.radio(key="strategy").set_value("Volatility-adjusted").run()
+    assert not app.exception
+    assert len(app.metric) == 6
+
+    app.sidebar.radio(key="strategy").set_value("Both").run()
+    assert not app.exception
+    assert [m.value for m in app.metric if m.label == "Strategy"] == ["Normal", "Volatility-adjusted"]
+    assert len(app.metric) == 12
+    assert len(app.get("plotly_chart")) == 4  # main, drawdown and one composition per strategy
+    assert "(Normal)" in " ".join(c.value for c in app.caption)

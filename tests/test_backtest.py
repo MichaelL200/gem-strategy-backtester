@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from gem_backtester.backtest import run
+from gem_backtester.backtest import momentum_table, run
 from gem_backtester.periods import duration_text
 
 
@@ -300,3 +300,65 @@ def test_composition_has_only_assets_that_were_held():
     traded = {pick[0] for pick in result.picks.iloc[:-1]}  # the last pick is not traded
     assert set(result.composition.columns) == traded
     assert result.composition.sum(axis=1).to_numpy() == pytest.approx(1.0)
+
+
+# ---- volatility-adjusted momentum -------------------------------------------
+
+
+def make_smooth_and_wild() -> pd.DataFrame:
+    """S rises 0.04% a day with tiny wiggles; W rises 0.1% a day with big ones."""
+    index = pd.bdate_range("2020-01-01", "2021-12-31")
+    wiggle = [1 if i % 2 else -1 for i in range(len(index))]
+    smooth = [100 * 1.0004**i * (1 + 0.0005 * w) for i, w in enumerate(wiggle)]
+    wild = [100 * 1.001**i * (1 + 0.03 * w) for i, w in enumerate(wiggle)]
+    return pd.DataFrame({"S": smooth, "W": wild}, index=index)
+
+
+def test_volatility_adjusted_prefers_the_smooth_riser():
+    prices = make_smooth_and_wild()
+    assert run(prices, 3).picks.iloc[-1] == ["W"]  # the higher return
+    assert run(prices, 3, volatility_adjusted=True).picks.iloc[-1] == ["S"]  # the better per risk
+
+
+def test_volatility_adjusted_off_is_the_default():
+    prices = make_smooth_and_wild()
+    pd.testing.assert_frame_equal(momentum_table(prices, 3), momentum_table(prices, 3, 0, False))
+    pd.testing.assert_series_equal(run(prices, 3).equity, run(prices, 3, volatility_adjusted=False).equity)
+
+
+def test_volatility_adjusted_score_is_return_over_daily_volatility():
+    prices = make_smooth_and_wild()
+    score = momentum_table(prices, 3, 1, volatility_adjusted=True)
+    date = pd.Timestamp("2021-06-30")
+    month_ends = momentum_table(prices, 3, 1).index
+    i = month_ends.get_loc(date)
+    window = prices["W"].pct_change().loc[month_ends[i - 3] : month_ends[i - 1]].iloc[1:]
+    expected = momentum_table(prices, 3, 1).loc[date, "W"] / window.std()
+    assert score.loc[date, "W"] == pytest.approx(expected)
+
+
+def test_volatility_adjusted_flat_asset_scores_zero():
+    """Cash does not move: 0 return over 0 volatility is a score of 0, not NaN."""
+    index = pd.bdate_range("2020-01-01", "2021-12-31")
+    falling = pd.Series([100 * 0.999**i * (1 + 0.01 * (i % 2)) for i in range(len(index))], index=index)
+    prices = pd.DataFrame({"X": falling, "CASH": 1.0})
+    score = momentum_table(prices, 3, volatility_adjusted=True).dropna()
+    assert (score["CASH"] == 0.0).all()
+    assert run(prices, 3, volatility_adjusted=True).picks.iloc[-1] == ["CASH"]  # X is negative
+
+
+def test_volatility_adjusted_has_no_lookahead():
+    prices = make_smooth_and_wild()
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > "2021-06-30"] = 1.0
+    a = momentum_table(prices, 3, 1, volatility_adjusted=True).loc[:"2021-06-30"]
+    b = momentum_table(wrecked, 3, 1, volatility_adjusted=True).loc[:"2021-06-30"]
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_volatility_adjusted_late_asset_is_not_ranked_before_it_has_history():
+    prices = make_smooth_and_wild()
+    prices.loc[prices.index[:300], "W"] = float("nan")
+    result = run(prices, 3, top_n=2, volatility_adjusted=True)
+    assert result.picks.iloc[0] == ["S"]
+    assert result.equity.min() > 0.5
