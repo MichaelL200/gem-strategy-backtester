@@ -25,7 +25,9 @@ RED = "#FF4B4B"  # invalid settings
 
 st.set_page_config(page_title="Momentum Backtester", layout="wide")
 st.markdown(
-    "<style>section[data-testid='stSidebar']{width:440px !important;min-width:440px !important}"
+    # wide sidebar on large screens only: on phones Streamlit shows it over the page
+    "<style>@media (min-width:769px){"
+    "section[data-testid='stSidebar']{width:440px !important;min-width:440px !important}}"
     # let the long "Period" value (e.g. "13 years 8 months") wrap instead of ending with "..."
     "[data-testid='stColumn']:first-child [data-testid='stMetricValue'],"
     "[data-testid='stColumn']:first-child [data-testid='stMetricValue'] *{white-space:normal !important;"
@@ -39,10 +41,40 @@ st.markdown(
     ".stElementContainer.st-key-main_chart [data-testid='stFullScreenFrame'],"
     ".stElementContainer.st-key-main_chart [data-testid='stPlotlyChart']"
     "{height:clamp(560px,calc(100vh - 400px),900px) !important}"
+    # phones and narrow windows: smaller margins and text, the metrics two per row (the first
+    # one, Period or Strategy, on its own row), Select all / Clear side by side, a lower chart
+    "@media (max-width:768px){"
+    ".block-container{padding:3rem 1rem 2rem !important}"
+    "h1{font-size:1.8rem !important}"
+    "[data-testid='stMetricValue']{font-size:1.6rem !important}"
+    "[class*='st-key-metrics'] [data-testid='stHorizontalBlock']"
+    "{flex-wrap:wrap !important;gap:.5rem 0 !important}"
+    "[class*='st-key-metrics'] [data-testid='stColumn']"
+    "{flex:1 1 calc(50% - 1rem) !important;min-width:calc(50% - 1rem) !important}"
+    "[class*='st-key-metrics'] [data-testid='stColumn']:first-child{flex-basis:100% !important}"
+    ".st-key-select_clear [data-testid='stHorizontalBlock']{flex-wrap:nowrap !important}"
+    ".st-key-select_clear [data-testid='stColumn']{min-width:0 !important}"
+    ".stElementContainer.st-key-main_chart,"
+    ".stElementContainer.st-key-main_chart [data-testid='stFullScreenFrame'],"
+    ".stElementContainer.st-key-main_chart [data-testid='stPlotlyChart']"
+    "{height:clamp(480px,70vh,640px) !important}}"
     "</style>",
     unsafe_allow_html=True,
 )
 st.title("Momentum Backtester")
+
+
+def is_mobile() -> bool:
+    """A phone, going by the browser name the request carries."""
+    try:
+        return "Mobi" in st.context.headers.get("User-Agent", "")
+    except Exception:  # no request headers (e.g. in tests)
+        return False
+
+
+mobile = is_mobile()
+if mobile:  # the sidebar is closed on phones
+    st.caption("Tap the arrow at the top left to change the settings.")
 notices = st.container()  # warnings about the settings; filled further down
 
 
@@ -52,6 +84,12 @@ def highlight(key: str, color: str = ORANGE) -> None:
         f"<style>.st-key-{key}{{outline:2px solid {color};outline-offset:6px;border-radius:6px}}</style>",
         unsafe_allow_html=True,
     )
+
+
+def fit_legend(fig) -> None:
+    """On phones the legend goes under the chart instead of taking the width on its right."""
+    if mobile:
+        fig.update_layout(legend={"orientation": "h", "x": 0, "y": -0.12, "yanchor": "top"})
 
 
 @st.cache_data(ttl=12 * 3600)
@@ -111,7 +149,8 @@ def add_tickers() -> None:
         )
 
 
-select_col, clear_col = st.sidebar.columns(2)
+with st.sidebar.container(key="select_clear"):
+    select_col, clear_col = st.columns(2)
 select_col.button("Select all", on_click=select_assets, args=(True,), width="stretch")
 clear_col.button("Clear", on_click=select_assets, args=(False,), width="stretch")
 
@@ -294,21 +333,22 @@ both = len(results) == 2
 duration = duration_text(result.start, result.end)
 
 
-def metrics(first_label: str, first_value: str, r: backtest.Result) -> None:
-    cols = st.columns([2, 1, 1, 1, 1, 1])
-    cols[0].metric(first_label, first_value)
-    cols[1].metric("CAGR", f"{r.cagr:.1%}")
-    cols[2].metric("Total return", f"{r.total_return:.1%}")
-    cols[3].metric("Volatility", f"{r.volatility:.1%}")
-    cols[4].metric("Sharpe", f"{r.sharpe:.2f}")
-    cols[5].metric("Max drawdown", f"{r.max_drawdown:.1%}")
+def metrics(index: int, first_label: str, first_value: str, r: backtest.Result) -> None:
+    with st.container(key=f"metrics_{index}"):
+        cols = st.columns([2, 1, 1, 1, 1, 1])
+        cols[0].metric(first_label, first_value)
+        cols[1].metric("CAGR", f"{r.cagr:.1%}")
+        cols[2].metric("Total return", f"{r.total_return:.1%}")
+        cols[3].metric("Volatility", f"{r.volatility:.1%}")
+        cols[4].metric("Sharpe", f"{r.sharpe:.2f}")
+        cols[5].metric("Max drawdown", f"{r.max_drawdown:.1%}")
 
 
 if both:
-    for name, r in results.items():
-        metrics("Strategy", name, r)
+    for i, (name, r) in enumerate(results.items()):
+        metrics(i, "Strategy", name, r)
 else:
-    metrics("Period", duration, result)
+    metrics(0, "Period", duration, result)
 
 picks = "; ".join(
     f"{', '.join(label[t] for t in r.picks.iloc[-1])}" + (f" ({name})" if both else "")
@@ -343,6 +383,7 @@ for name in results:
         selector={"name": line_names[name]},
     )
 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", margin={"t": 60})
+fit_legend(fig)
 st.plotly_chart(fig, width="stretch", key="main_chart")
 
 if both:  # overlapping lines: areas would be stacked
@@ -352,6 +393,7 @@ if both:  # overlapping lines: areas would be stacked
         color_discrete_map=line_colors,
     )
     fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="")
+    fit_legend(fig)
     st.plotly_chart(fig, width="stretch")
 else:
     st.plotly_chart(px.area(result.drawdown * 100, title="Strategy drawdown (%)"), width="stretch")
@@ -364,4 +406,5 @@ for name, r in results.items():
         color_discrete_map=colors,
     )
     fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", yaxis_ticksuffix="%")
+    fit_legend(fig)
     st.plotly_chart(fig, width="stretch", key=f"composition_{name}")

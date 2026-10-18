@@ -1,8 +1,11 @@
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 from gem_backtester import data
@@ -11,8 +14,7 @@ from gem_backtester.assets import ASSETS, CATEGORIES
 APP = str(Path(__file__).parent.parent / "app.py")
 
 
-@pytest.fixture
-def app(monkeypatch):
+def fake_app(monkeypatch):
     index = pd.bdate_range("2015-01-01", "2024-12-31")
     rng = np.random.default_rng(0)
 
@@ -24,6 +26,11 @@ def app(monkeypatch):
     monkeypatch.setattr(data, "_load", fake_load)
     monkeypatch.setattr(data, "_quote_currency", lambda t: None if t == "MYSTERY" else "USD")
     return AppTest.from_file(APP, default_timeout=60).run()
+
+
+@pytest.fixture
+def app(monkeypatch):
+    return fake_app(monkeypatch)
 
 
 def selected(app) -> dict[str, list[str]]:
@@ -174,3 +181,45 @@ def test_ticker_without_a_known_currency_gets_a_warning_but_is_added(app):
         "The currency of MYSTERY could not be found, so its prices are taken as USD."
     ]
     assert "st-key-assets" in " ".join(m.value for m in app.markdown)
+
+
+PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
+DESKTOP = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
+
+
+def legends(app) -> list[str | None]:
+    figures = [json.loads(chart.proto.spec) for chart in app.get("plotly_chart")]
+    return [figure["layout"].get("legend", {}).get("orientation") for figure in figures]
+
+
+def test_desktop_keeps_the_legend_on_the_right_and_has_no_hint(app):
+    assert legends(app) == [None, None, None]  # main, drawdown, composition
+    assert not [c for c in app.caption if "arrow at the top left" in c.value]
+
+
+def test_phone_gets_a_hint_and_the_legends_under_the_charts(monkeypatch):
+    monkeypatch.setattr(st, "context", SimpleNamespace(headers={"User-Agent": PHONE}))
+    phone = fake_app(monkeypatch)
+    assert not phone.exception
+    assert [c.value for c in phone.caption if "arrow at the top left" in c.value]
+    assert legends(phone) == ["h", None, "h"]  # the drawdown chart has no legend
+
+
+def test_a_desktop_browser_is_not_a_phone(monkeypatch):
+    monkeypatch.setattr(st, "context", SimpleNamespace(headers={"User-Agent": DESKTOP}))
+    assert legends(fake_app(monkeypatch)) == [None, None, None]
+
+
+def test_phone_legends_with_both_strategies(monkeypatch):
+    monkeypatch.setattr(st, "context", SimpleNamespace(headers={"User-Agent": PHONE}))
+    phone = fake_app(monkeypatch)
+    phone.sidebar.radio(key="strategy").set_value("Both").run()
+    assert not phone.exception
+    assert legends(phone) == ["h", "h", "h", "h"]  # main, drawdown and two compositions
+
+
+def test_layout_rules_for_small_screens(app):
+    css = " ".join(m.value for m in app.markdown if m.value.startswith("<style>"))
+    assert "@media (min-width:769px){section[data-testid='stSidebar']" in css  # wide only
+    assert "@media (max-width:768px)" in css
+    assert "st-key-metrics" in css and "st-key-select_clear" in css
