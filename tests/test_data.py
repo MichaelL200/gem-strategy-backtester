@@ -161,3 +161,23 @@ def test_nonsense_from_yahoo_is_no_currency(monkeypatch, tmp_path, answer):
     monkeypatch.setitem(sys.modules, "yfinance", FakeYahoo)
     assert data._quote_currency("XYZ") is None
     assert not list(tmp_path.iterdir())
+
+
+# ---- cash alone ----------------------------------------------------------------
+
+
+def test_cash_alone_has_its_own_days(monkeypatch):
+    monkeypatch.setattr(data, "_load", lambda t: pytest.fail("nothing to download"))
+    prices = data.load_prices([data.CASH])
+    assert isinstance(prices.index, pd.DatetimeIndex)
+    assert prices.index[0] >= pd.Timestamp(data.CASH_ONLY_START)
+    assert prices.index[-1] <= pd.Timestamp.today()
+    assert (prices[data.CASH] == 1.0).all()
+
+
+def test_cash_alone_in_another_currency_moves_with_the_rate(monkeypatch):
+    rate = pd.Series([0.9, 0.8], index=pd.to_datetime(["2020-01-02", "2020-01-03"]))
+    monkeypatch.setattr(data, "_load", lambda t: rate)
+    prices = data.load_prices([data.CASH], "EUR")
+    assert prices.index[0] == pd.Timestamp("2020-01-02")  # the days before the first rate are dropped
+    assert prices[data.CASH].iloc[:2].tolist() == pytest.approx([0.9, 0.8])

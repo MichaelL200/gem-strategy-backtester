@@ -223,3 +223,17 @@ def test_layout_rules_for_small_screens(app):
     assert "@media (min-width:769px){section[data-testid='stSidebar']" in css  # wide only
     assert "@media (max-width:768px)" in css
     assert "st-key-metrics" in css and "st-key-select_clear" in css
+
+
+def test_cash_alone_runs_with_a_warning_and_no_sharpe(app):
+    app.sidebar.button[1].click().run()  # Clear
+    app.session_state["pills_Cash"] = ["Cash (USD)"]
+    app.run()
+    assert not app.exception
+    assert [m.value for m in app.metric if m.label == "Sharpe"] == ["n/a"]  # no volatility
+    assert len(app.warning) == 1
+    assert app.warning[0].value.startswith("Only one asset is selected")
+
+    app.sidebar.radio(key="strategy").set_value("Both").run()
+    assert not app.exception
+    assert len(app.metric) == 12

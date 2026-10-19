@@ -16,6 +16,7 @@ CACHE_DIR = Path("data/cache")
 MAX_AGE_SECONDS = 12 * 3600
 CASH = "USD"  # not downloaded: price 1.0 on every day (0% return)
 CURRENCIES = ("USD", "EUR", "GBP", "PLN", "CHF", "JPY", "CAD", "AUD")  # the ones to choose from
+CASH_ONLY_START = "2000-01-01"  # first day when only cash is chosen: there is no price history
 PENCE = {"GBp": "GBP", "GBX": "GBP"}  # London quotes in a hundredth of a pound
 
 
@@ -31,6 +32,9 @@ def load_prices(tickers: list[str], currency: str = "USD") -> pd.DataFrame:
         raise ValueError(f"Unknown currency {currency}")
     prices = pd.DataFrame({t: _load(t) for t in tickers if t != CASH}).sort_index()
     if CASH in tickers:
+        if prices.empty:  # cash alone: no price history to take the days from
+            days = pd.bdate_range(CASH_ONLY_START, pd.Timestamp.today().normalize())
+            prices = pd.DataFrame(index=days)
         prices[CASH] = 1.0
     prices = prices[list(tickers)]
     rates: dict[str, pd.Series] = {}  # per currency: units per 1 USD on the days of `prices`
