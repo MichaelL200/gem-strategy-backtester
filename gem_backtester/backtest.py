@@ -20,6 +20,8 @@ class Result:
     cagr: float
     volatility: float
     sharpe: float
+    sortino: float
+    calmar: float
     max_drawdown: float
 
     @property
@@ -157,14 +159,21 @@ def _with_metrics(
     returns = equity.pct_change().dropna()
     years = (equity.index[-1] - equity.index[0]).days / 365.25
     volatility = float(returns.std(ddof=1) * np.sqrt(TRADING_DAYS))
+    downside_dev = float(np.sqrt((np.minimum(0, returns) ** 2).mean()) * np.sqrt(TRADING_DAYS))
+    
+    cagr = float(equity.iloc[-1] ** (1.0 / years) - 1.0)
+    max_drawdown = float((equity / equity.cummax() - 1.0).min())
+    
     return Result(
         equity=equity,
         assets=assets,
         picks=picks,
         composition=composition,
         total_return=float(equity.iloc[-1] - 1.0),
-        cagr=float(equity.iloc[-1] ** (1.0 / years) - 1.0),
+        cagr=cagr,
         volatility=volatility,
         sharpe=float(returns.mean() * TRADING_DAYS / volatility) if volatility else np.nan,
-        max_drawdown=float((equity / equity.cummax() - 1.0).min()),
+        sortino=float(returns.mean() * TRADING_DAYS / downside_dev) if downside_dev else np.nan,
+        calmar=float(cagr / -max_drawdown) if max_drawdown < 0 else np.nan,
+        max_drawdown=max_drawdown,
     )
