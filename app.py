@@ -99,8 +99,17 @@ def prices_for(tickers: tuple[str, ...], currency: str) -> pd.DataFrame:
     return load_prices(list(tickers), currency)
 
 
-# ---- 1. Assets -------------------------------------------------------------
-st.sidebar.markdown("### 1 · Assets")
+# ---- 1. Currency -----------------------------------------------------------
+st.sidebar.markdown("### 1 · Currency")
+st.sidebar.caption("The currency the backtest is calculated in; prices are converted daily.")
+currency = st.sidebar.selectbox(
+    "Currency", CURRENCIES, key="currency", label_visibility="collapsed"
+)
+
+
+# ---- 2. Assets -------------------------------------------------------------
+st.sidebar.divider()
+st.sidebar.markdown("### 2 · Assets")
 
 
 def categories() -> dict[str, dict[str, str]]:
@@ -113,9 +122,14 @@ def all_assets() -> dict[str, str]:
     return {name: ticker for group in categories().values() for name, ticker in group.items()}
 
 
-def select_assets(select: bool) -> None:
+def select_assets(mode: str) -> None:
     for category, group in categories().items():
-        st.session_state[f"pills_{category}"] = list(group) if select else []
+        if mode == "all":
+            st.session_state[f"pills_{category}"] = list(group)
+        elif mode == "default":
+            st.session_state[f"pills_{category}"] = [n for n in group if n in DEFAULT_ASSETS]
+        else:  # clear
+            st.session_state[f"pills_{category}"] = []
 
 
 def add_tickers() -> None:
@@ -152,9 +166,10 @@ def add_tickers() -> None:
 
 
 with st.sidebar.container(key="select_clear"):
-    select_col, clear_col = st.columns(2)
-select_col.button("Select all", on_click=select_assets, args=(True,), width="stretch")
-clear_col.button("Clear", on_click=select_assets, args=(False,), width="stretch")
+    cols = st.columns(3)
+cols[0].button("All", on_click=select_assets, args=("all",), width="stretch")
+cols[1].button("Default", on_click=select_assets, args=("default",), width="stretch")
+cols[2].button("Clear", on_click=select_assets, args=("clear",), width="stretch")
 
 assets = all_assets()
 names: list[str] = []
@@ -223,13 +238,14 @@ else:
     )
     highlight("assets")
 
-# ---- 2. Momentum -----------------------------------------------------------
+# ---- 3. Momentum -----------------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 2 · Momentum")
+st.sidebar.markdown("### 3 · Momentum")
 st.sidebar.caption("How each asset's past performance is measured to rank it.")
 strategy = st.sidebar.radio(
     "Momentum",
     list(STRATEGIES),
+    index=list(STRATEGIES).index("Both"),
     label_visibility="collapsed",
     key="strategy",
     captions=[
@@ -247,15 +263,15 @@ else:
     st.sidebar.warning("The lookback must be longer than the ignored months.")
     highlight("lookback_window", RED)
 
-# ---- 3. Rebalancing --------------------------------------------------------
+# ---- 4. Rebalancing --------------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 3 · Rebalancing")
+st.sidebar.markdown("### 4 · Rebalancing")
 st.sidebar.caption("How often the ranking is redone and the portfolio switches to the winner.")
 rebalance = st.sidebar.slider("Rebalance every (months)", 1, 12, DEFAULT_REBALANCE)
 
-# ---- 4. Backtest period ----------------------------------------------------
+# ---- 5. Backtest period ----------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 4 · Backtest period")
+st.sidebar.markdown("### 5 · Backtest period")
 mode = st.sidebar.radio(
     "Period to backtest",
     MODES,
@@ -268,15 +284,7 @@ mode = st.sidebar.radio(
     ],
 )
 
-period_box = st.sidebar.container()  # the dates and the data table of section 4 go here
-
-# ---- 5. Currency -----------------------------------------------------------
-st.sidebar.divider()
-st.sidebar.markdown("### 5 · Currency")
-st.sidebar.caption("The currency the backtest is calculated in; prices are converted daily.")
-currency = st.sidebar.selectbox(
-    "Currency", CURRENCIES, key="currency", label_visibility="collapsed"
-)
+period_box = st.sidebar.container()  # the dates and the data table of section 5 go here
 
 if not names:
     st.stop()
