@@ -418,7 +418,12 @@ if show_benchmarks and benchmarks:
 
 for name, r in results.items():
     compare[line_names[name]] = r.equity
+
+# Create a stable color mapping based on original column insertion order
 colors = {name: px.colors.qualitative.Plotly[i % 10] for i, name in enumerate(compare.columns)}
+
+# Sort columns by their final equity value so the legend is ordered by returns
+compare = compare[compare.iloc[-1].sort_values(ascending=False).index]
 
 title = "Strategy vs. benchmarks & assets (start = 1)" if show_benchmarks and benchmarks else "Strategy vs. assets held alone (start = 1)"
 fig = px.line(
@@ -428,7 +433,7 @@ fig.update_traces(line_width=1.2)
 for name in results:
     fig.update_traces(
         line={"width": 3.5, "color": line_colors[name]},
-        legendrank=1,
+        # legendrank=1 is removed so strategies sort based on dataframe ordering
         selector={"name": line_names[name]},
     )
 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="", margin={"t": 60})
