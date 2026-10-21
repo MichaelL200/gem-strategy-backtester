@@ -107,11 +107,6 @@ currency = st.sidebar.selectbox(
 )
 
 
-# ---- 2. Assets -------------------------------------------------------------
-st.sidebar.divider()
-st.sidebar.markdown("### 2 · Assets")
-
-
 def categories() -> dict[str, dict[str, str]]:
     """The built-in categories plus the tickers added by the user (name = ticker)."""
     custom = st.session_state.get("custom_tickers", [])
@@ -121,6 +116,27 @@ def categories() -> dict[str, dict[str, str]]:
 def all_assets() -> dict[str, str]:
     return {name: ticker for group in categories().values() for name, ticker in group.items()}
 
+assets = all_assets()
+
+# ---- 2. Benchmarks ---------------------------------------------------------
+st.sidebar.divider()
+st.sidebar.markdown("### 2 · Benchmarks")
+show_benchmarks = st.sidebar.toggle("Compare to benchmarks", value=True)
+benchmarks = []
+if show_benchmarks:
+    default_bench = ["MSCI World (DM)"] if "MSCI World (DM)" in assets else []
+    benchmarks = st.sidebar.multiselect(
+        "Benchmarks",
+        options=list(assets.keys()),
+        default=default_bench,
+        format_func=lambda n: n if n == assets[n] else f"{n} · {assets[n]}",
+        label_visibility="collapsed"
+    )
+
+
+# ---- 3. Assets -------------------------------------------------------------
+st.sidebar.divider()
+st.sidebar.markdown("### 3 · Assets")
 
 def select_assets(mode: str) -> None:
     for category, group in categories().items():
@@ -171,7 +187,6 @@ cols[0].button("All", on_click=select_assets, args=("all",), width="stretch")
 cols[1].button("Default", on_click=select_assets, args=("default",), width="stretch")
 cols[2].button("Clear", on_click=select_assets, args=("clear",), width="stretch")
 
-assets = all_assets()
 names: list[str] = []
 with st.sidebar.container(key="assets"):
     for category, group in categories().items():
@@ -238,9 +253,9 @@ else:
     )
     highlight("assets")
 
-# ---- 3. Momentum -----------------------------------------------------------
+# ---- 4. Momentum -----------------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 3 · Momentum")
+st.sidebar.markdown("### 4 · Momentum")
 st.sidebar.caption("How each asset's past performance is measured to rank it.")
 strategy = st.sidebar.radio(
     "Momentum",
@@ -263,15 +278,15 @@ else:
     st.sidebar.warning("The lookback must be longer than the ignored months.")
     highlight("lookback_window", RED)
 
-# ---- 4. Rebalancing --------------------------------------------------------
+# ---- 5. Rebalancing --------------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 4 · Rebalancing")
+st.sidebar.markdown("### 5 · Rebalancing")
 st.sidebar.caption("How often the ranking is redone and the portfolio switches to the winner.")
 rebalance = st.sidebar.slider("Rebalance every (months)", 1, 12, DEFAULT_REBALANCE)
 
-# ---- 5. Backtest period ----------------------------------------------------
+# ---- 6. Backtest period ----------------------------------------------------
 st.sidebar.divider()
-st.sidebar.markdown("### 5 · Backtest period")
+st.sidebar.markdown("### 6 · Backtest period")
 mode = st.sidebar.radio(
     "Period to backtest",
     MODES,
@@ -284,13 +299,22 @@ mode = st.sidebar.radio(
     ],
 )
 
-period_box = st.sidebar.container()  # the dates and the data table of section 5 go here
+period_box = st.sidebar.container()  # the dates and the data table of section 6 go here
 
 if not names:
     st.stop()
 
 try:
-    prices = prices_for(tuple(assets[n] for n in names), currency)
+    asset_tickers = [assets[n] for n in names]
+    bench_tickers = [assets[b] for b in benchmarks] if show_benchmarks else []
+    
+    # Extract unique tickers while maintaining predictable order
+    all_tickers_list = []
+    for t in asset_tickers + bench_tickers:
+        if t not in all_tickers_list:
+            all_tickers_list.append(t)
+            
+    prices = prices_for(tuple(all_tickers_list), currency)
 except ValueError as error:
     st.error(str(error))
     st.stop()
@@ -302,11 +326,13 @@ if prices.attrs.get("unknown_currency"):
         "so its prices are taken as USD."
     )
     highlight("assets")
-avail = availability(prices, lookback, skip) if lookback > skip else None
+    
+asset_prices = prices[asset_tickers]
+avail = availability(asset_prices, lookback, skip) if lookback > skip else None
 
 start = end = None
 if mode == CUSTOM:
-    first, last = prices.index[0], prices.index[-1]
+    first, last = asset_prices.index[0], asset_prices.index[-1]
     ranked = avail["Ranked from"] if avail is not None else None
     common_from = ranked.max() if ranked is not None and ranked.notna().all() else first
     picked = period_box.date_input(
@@ -331,7 +357,7 @@ results = {}
 try:
     for name in STRATEGIES[strategy]:
         results[name] = backtest.run(
-            prices, lookback, skip, start=start, end=end, common=mode == COMMON,
+            asset_prices, lookback, skip, start=start, end=end, common=mode == COMMON,
             rebalance=rebalance, top_n=top_n, volatility_adjusted=name == "Volatility-adjusted",
         )
 except ValueError as error:
@@ -379,11 +405,24 @@ st.caption("↓ Scroll down for the drawdown and portfolio composition charts.")
 line_names = {name: f"Strategy ({name})" if both else "Strategy" for name in results}
 line_colors = dict(zip(results, (GREEN, PINK)))
 compare = result.assets.rename(columns=label)
+
+if show_benchmarks and benchmarks:
+    bench_prices = prices[bench_tickers].loc[result.start:result.end].ffill()
+    if not bench_prices.empty:
+        # Rebase to start at 1 based on the first available valid price
+        bench_equity = bench_prices / bench_prices.bfill().iloc[0]
+        bench_equity = bench_equity.rename(columns=label)
+        for b in benchmarks:
+            if b not in compare.columns:
+                compare[b] = bench_equity[b]
+
 for name, r in results.items():
     compare[line_names[name]] = r.equity
 colors = {name: px.colors.qualitative.Plotly[i % 10] for i, name in enumerate(compare.columns)}
+
+title = "Strategy vs. benchmarks & assets (start = 1)" if show_benchmarks and benchmarks else "Strategy vs. assets held alone (start = 1)"
 fig = px.line(
-    compare, log_y=True, title="Strategy vs. assets held alone (start = 1)", color_discrete_map=colors
+    compare, log_y=True, title=title, color_discrete_map=colors
 )
 fig.update_traces(line_width=1.2)
 for name in results:
