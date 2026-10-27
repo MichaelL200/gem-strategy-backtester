@@ -277,6 +277,34 @@ if lookback > skip:
 else:
     st.sidebar.warning("The lookback must be longer than the ignored months.")
     highlight("lookback_window", RED)
+with st.sidebar.container(key="outliers"):
+    exclude_outliers = st.toggle(
+        "Exclude top outliers",
+        key="exclude_outliers",
+        help="Skip an asset whose score is extremely high compared with the others "
+        "(e.g. +1156% when the rest are around +400%), and pick the best of the rest.",
+    )
+    outlier_threshold = None
+    if exclude_outliers:
+        outlier_threshold = st.slider(
+            "Outlier threshold (lower = stronger)",
+            2.0,
+            10.0,
+            backtest.DEFAULT_OUTLIER_THRESHOLD,
+            0.5,
+            key="outlier_threshold",
+        )
+        st.caption(
+            "An asset is skipped when its score is this many robust standard deviations above "
+            "the median score of the ranked assets. 3.5 is the usual cut-off; 2-3 skips more "
+            "assets, 5 or more only the most extreme."
+        )
+if exclude_outliers and n_assets < backtest.MIN_OUTLIER_ASSETS:
+    notices.warning(
+        f"Excluding outliers needs at least {backtest.MIN_OUTLIER_ASSETS} ranked assets: "
+        "with fewer, nothing is excluded."
+    )
+    highlight("outliers")
 
 # ---- 5. Rebalancing --------------------------------------------------------
 st.sidebar.divider()
@@ -359,6 +387,7 @@ try:
         results[name] = backtest.run(
             asset_prices, lookback, skip, start=start, end=end, common=mode == COMMON,
             rebalance=rebalance, top_n=top_n, volatility_adjusted=name == "Volatility-adjusted",
+            outlier_threshold=outlier_threshold,
         )
 except ValueError as error:
     st.error(str(error))
@@ -398,6 +427,13 @@ st.caption(
     f"Latest pick{'s' if both or len(result.picks.iloc[-1]) > 1 else ''}: **{picks}** "
     f"(as of {result.picks.index[-1]:%Y-%m-%d})"
 )
+if outlier_threshold is not None:
+    cut = "; ".join(
+        ", ".join(label[t] for t in r.excluded.iloc[-1]) + (f" ({name})" if both else "")
+        for name, r in results.items()
+        if len(r.excluded.iloc[-1])
+    )
+    st.caption(f"Excluded as outliers at the latest rebalance: **{cut or 'none'}**")
 if mode == CUSTOM and result.start > start + pd.Timedelta(days=31):
     st.caption(
         f"Trading starts at the first month-end with enough history, {result.start:%Y-%m-%d}."

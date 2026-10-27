@@ -1,0 +1,477 @@
+import pandas as pd
+import pytest
+
+from gem_backtester.backtest import momentum_table, outlier_flags, run
+from gem_backtester.periods import duration_text
+
+
+def make_prices() -> pd.DataFrame:
+    index = pd.bdate_range("2020-01-01", "2021-12-31")
+    half = len(index) // 2
+    # A rises in the first half then falls; B is flat in the first half then rises.
+    a = [100 * 1.001**i if i < half else 100 * 1.001**half * 0.999 ** (i - half) for i in range(len(index))]
+    b = [100.0 if i < half else 100 * 1.002 ** (i - half) for i in range(len(index))]
+    return pd.DataFrame({"A": a, "B": b}, index=index)
+
+
+def make_monthly_steps() -> pd.DataFrame:
+    """A gains 2% a month until Oct 2021, then drops 20% in Nov. B is flat."""
+    index = pd.bdate_range("2020-01-01", "2021-11-30")
+    k = (index.year - 2020) * 12 + index.month - 1
+    a = [100 * 1.02 ** min(m, 21) * (0.8 if m == 22 else 1.0) for m in k]
+    return pd.DataFrame({"A": a, "B": 100.0}, index=index)
+
+
+def test_picks_best_in_window():
+    result = run(make_prices(), 3)
+    assert result.picks.iloc[0] == ["A"]
+    assert result.picks.iloc[-1] == ["B"]
+
+
+def test_equity_starts_at_one_and_assets_are_included():
+    result = run(make_prices(), 3)
+    assert result.equity.iloc[0] == 1.0
+    assert list(result.assets.columns) == ["A", "B"]
+    assert (result.assets.iloc[0] == 1.0).all()
+
+
+def test_ignored_months_change_the_pick():
+    prices = make_monthly_steps()
+    assert run(prices, 3, skip=0).picks.iloc[-1] == ["B"]  # the Nov drop is inside the window
+    assert run(prices, 3, skip=1).picks.iloc[-1] == ["A"]  # the Nov drop is ignored
+
+
+def test_skip_must_be_shorter_than_lookback():
+    with pytest.raises(ValueError):
+        run(make_prices(), 3, skip=3)
+
+
+def test_missing_day_does_not_change_picks():
+    prices = make_prices()
+    gapped = prices.copy()
+    gapped.loc["2020-09-30", "A"] = float("nan")
+    # Compare element-wise since picks are lists
+    for a, b in zip(run(prices, 3).picks, run(gapped, 3).picks):
+        assert a == b
+
+
+def test_no_lookahead():
+    prices = make_prices()
+    cutoff = pd.Timestamp("2021-06-30")
+    base = run(prices.loc[:cutoff], 3)
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > cutoff] = 1.0
+    other = run(wrecked, 3)
+    pd.testing.assert_series_equal(base.equity.loc[:cutoff], other.equity.loc[:cutoff])
+
+
+def test_not_enough_history():
+    with pytest.raises(ValueError):
+        run(make_prices(), 24)
+
+
+def test_late_asset_joins_when_it_has_history():
+    prices = make_prices()
+    prices.loc[prices.index[:300], "B"] = float("nan")
+    result = run(prices, 3)
+    assert result.picks.iloc[0] == ["A"]
+    assert result.picks.index[0] < prices.index[300]
+
+
+def test_late_asset_line_starts_at_strategy_value():
+    prices = make_prices()
+    prices.loc[prices.index[:300], "B"] = float("nan")
+    result = run(prices, 3)
+    first = result.assets["B"].first_valid_index()
+    assert first == prices.index[300]
+    assert result.assets.loc[first, "B"] == pytest.approx(result.equity.loc[first])
+
+
+def late_b_prices() -> pd.DataFrame:
+    prices = make_prices()
+    prices.loc[prices.index[:300], "B"] = float("nan")
+    return prices
+
+
+def test_common_period_starts_when_every_asset_is_eligible():
+    prices = late_b_prices()
+    everything = run(prices, 3)
+    common = run(prices, 3, common=True)
+    assert common.picks.index[0] > everything.picks.index[0]
+    assert common.picks.index[0] > prices.index[300]  # B has a full 3-month window by then
+    assert set(common.assets.columns) == {"A", "B"}
+
+
+# ---- top_n tests -----------------------------------------------------------
+
+def test_top_n_one_is_default_behaviour():
+    """top_n=1 must match the legacy single-winner behaviour."""
+    prices = make_prices()
+    result_default = run(prices, 3)
+    result_explicit = run(prices, 3, top_n=1)
+    pd.testing.assert_series_equal(result_default.equity, result_explicit.equity)
+    for a, b in zip(result_default.picks, result_explicit.picks):
+        assert a == b
+
+
+def test_top_n_picks_contains_n_tickers():
+    prices = make_prices()
+    result = run(prices, 3, top_n=2)
+    for pick_list in result.picks:
+        assert len(pick_list) == 2
+
+
+def test_top_n_weights_drift_between_rebalances():
+    """No trading between rebalances: each asset keeps its units, so the weights drift."""
+    prices = make_prices()
+    result = run(prices, 3, rebalance=12, top_n=2)
+    first, second = result.picks.index[:2]
+    days = result.equity.loc[first:second].index
+    expected = 0.5 * prices.loc[days, "A"] / prices.loc[first, "A"]
+    expected += 0.5 * prices.loc[days, "B"] / prices.loc[first, "B"]
+    pd.testing.assert_series_equal(result.equity.loc[first:second], expected, check_names=False, check_freq=False)
+
+
+def test_top_n_weights_are_equal_again_at_each_rebalance():
+    prices = make_prices()
+    result = run(prices, 3, rebalance=3, top_n=2)
+    second, third = result.picks.index[1:3]
+    days = result.equity.loc[second:third].index
+    growth = result.equity.loc[days] / result.equity[second]
+    expected = 0.5 * prices.loc[days, "A"] / prices.loc[second, "A"]
+    expected += 0.5 * prices.loc[days, "B"] / prices.loc[second, "B"]
+    pd.testing.assert_series_equal(growth, expected, check_names=False, check_freq=False)
+
+
+def test_rebalance_period_matters_when_holding_all_assets():
+    prices = make_prices()
+    monthly = run(prices, 3, rebalance=1, top_n=2).equity
+    yearly = run(prices, 3, rebalance=12, top_n=2).equity
+    assert monthly.iloc[-1] != pytest.approx(yearly.iloc[-1])
+
+
+def test_top_n_holds_only_assets_that_can_be_ranked():
+    """An asset without history has no momentum: it must not be picked, nor take a share."""
+    prices = make_prices()
+    prices.loc[prices.index[:300], "B"] = float("nan")
+    result = run(prices, 3, top_n=2)
+    first = result.picks.index[0]
+    assert result.picks.iloc[0] == ["A"]
+    day = result.equity.index[10]  # before B has prices
+    assert result.equity[day] == pytest.approx(prices.loc[day, "A"] / prices.loc[first, "A"])
+    assert result.equity.min() > 0.5
+
+
+def test_top_n_greater_than_assets_is_capped():
+    """top_n larger than the asset count should not raise; it just holds all available assets."""
+    prices = make_prices()  # 2 assets
+    result = run(prices, 3, top_n=10)
+    for pick_list in result.picks:
+        assert len(pick_list) <= 2
+
+
+def test_top_n_must_be_at_least_one():
+    with pytest.raises(ValueError):
+        run(make_prices(), 3, top_n=0)
+
+
+def test_top_n_slow_rebalance():
+    """top_n interacts correctly with multi-month rebalancing intervals."""
+    prices = make_prices()
+    result = run(prices, 3, rebalance=3, top_n=2)
+    for pick_list in result.picks:
+        assert len(pick_list) == 2
+    assert list(result.picks.index) == list(run(prices, 3, rebalance=3).picks.index)
+
+
+def test_custom_period_covers_the_whole_selected_period():
+    """A selected year is a year: 2021-01-01 to 2022-01-01 is not 11 months."""
+    result = run(make_prices(), 3, start="2021-01-01", end="2022-01-01")
+    assert result.start == pd.Timestamp("2020-12-31")  # the close before the first day
+    assert result.end == pd.Timestamp("2021-12-31")  # the last trading day
+    assert duration_text(result.start, result.end) == "1 year"
+    assert result.equity.index[1] == pd.Timestamp("2021-01-01")  # earns from the first day
+
+
+def test_custom_period_bounds():
+    prices = make_prices()
+    result = run(prices, 3, start="2020-12-31", end="2021-09-30")
+    assert result.start == pd.Timestamp("2020-12-30")
+    assert result.equity.index[1] == pd.Timestamp("2020-12-31")
+    assert result.end <= pd.Timestamp("2021-09-30")
+
+
+def test_custom_start_uses_earlier_history_for_first_signal():
+    prices = make_prices()
+    # Starting mid-month: the position is bought the day before, on the last month-end signal.
+    result = run(prices, 3, start="2021-03-15")
+    assert result.start == pd.Timestamp("2021-03-12")
+    assert result.picks.index[1] == pd.Timestamp("2021-03-31")
+    assert result.picks.iloc[0] == run(prices, 3).picks.loc["2021-02-26"]
+
+
+def test_custom_start_without_earlier_history_waits_for_the_first_signal():
+    prices = make_prices()
+    result = run(prices, 3, start="2020-01-01")
+    assert result.picks.index[0] == run(prices, 3).picks.index[0] > pd.Timestamp("2020-01-01")
+
+
+def test_end_date_has_no_lookahead():
+    prices = make_prices()
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > "2021-06-30"] = 1.0
+    a = run(prices, 3, end="2021-06-30")
+    b = run(wrecked, 3, end="2021-06-30")
+    pd.testing.assert_series_equal(a.equity, b.equity)
+
+
+def test_period_without_data_raises():
+    with pytest.raises(ValueError):
+        run(make_prices(), 3, start="2030-01-01")
+    with pytest.raises(ValueError):
+        run(make_prices(), 3, end="2019-01-01")
+
+
+def test_monthly_is_the_default_rebalance():
+    prices = make_prices()
+    pd.testing.assert_series_equal(run(prices, 3).picks, run(prices, 3, rebalance=1).picks)
+
+
+def test_rebalance_every_n_months_spaces_the_picks():
+    prices = make_prices()
+    monthly = run(prices, 3)
+    quarterly = run(prices, 3, rebalance=3)
+    assert quarterly.picks.index[0] == monthly.picks.index[0]
+    assert list(quarterly.picks.index) == list(monthly.picks.index[::3])
+    assert quarterly.picks.equals(monthly.picks.iloc[::3])
+
+
+def test_slow_rebalance_does_not_react_between_rebalances():
+    # A gains 2% a month until Oct 2021, then drops 20% in Nov; B is flat.
+    prices = make_monthly_steps()
+    monthly = run(prices, 3, skip=0)
+    slow = run(prices, 3, skip=0, rebalance=12)
+    # Monthly sees the drop at the Nov month-end; the 12-month cycle's last rebalance is earlier,
+    # so it still points at A.
+    assert monthly.picks.iloc[-1] == ["B"]
+    assert slow.picks.index[-1] < monthly.picks.index[-1]
+    assert slow.picks.iloc[-1] == ["A"]
+
+
+def test_rebalance_has_no_lookahead():
+    prices = make_prices()
+    cutoff = pd.Timestamp("2021-06-30")
+    base = run(prices.loc[:cutoff], 3, rebalance=2)
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > cutoff] = 1.0
+    other = run(wrecked, 3, rebalance=2)
+    pd.testing.assert_series_equal(base.equity.loc[:cutoff], other.equity.loc[:cutoff])
+
+
+def test_rebalance_must_be_at_least_one_month():
+    with pytest.raises(ValueError):
+        run(make_prices(), 3, rebalance=0)
+
+
+# ---- portfolio composition -------------------------------------------------
+
+
+def test_composition_sums_to_one_and_starts_equal():
+    result = run(make_prices(), 3, top_n=2)
+    assert result.composition.sum(axis=1).to_numpy() == pytest.approx(1.0)
+    assert result.composition.iloc[0].to_list() == [0.5, 0.5]
+    assert result.composition.index.equals(result.equity.index)
+
+
+def test_composition_drifts_and_is_equal_again_after_a_rebalance():
+    prices = make_prices()
+    result = run(prices, 3, rebalance=3, top_n=2)
+    first, second = result.picks.index[:2]
+    held = prices.loc[result.composition.index] / prices.loc[first]
+    day = result.composition.index[10]  # between the rebalances: no trading, so the weights drift
+    assert result.composition.loc[day, "A"] == pytest.approx(held.loc[day, "A"] / held.loc[day].sum())
+    assert result.composition.loc[day, "A"] != pytest.approx(0.5)
+    after = result.composition.index[result.composition.index > second][0]  # the day after: ~equal again
+    assert result.composition.loc[after, "A"] == pytest.approx(0.5, abs=0.05)
+
+
+def test_composition_has_only_assets_that_were_held():
+    result = run(make_prices(), 3, top_n=1)
+    traded = {pick[0] for pick in result.picks.iloc[:-1]}  # the last pick is not traded
+    assert set(result.composition.columns) == traded
+    assert result.composition.sum(axis=1).to_numpy() == pytest.approx(1.0)
+
+
+# ---- volatility-adjusted momentum -------------------------------------------
+
+
+def make_smooth_and_wild() -> pd.DataFrame:
+    """S rises 0.04% a day with tiny wiggles; W rises 0.1% a day with big ones."""
+    index = pd.bdate_range("2020-01-01", "2021-12-31")
+    wiggle = [1 if i % 2 else -1 for i in range(len(index))]
+    smooth = [100 * 1.0004**i * (1 + 0.0005 * w) for i, w in enumerate(wiggle)]
+    wild = [100 * 1.001**i * (1 + 0.03 * w) for i, w in enumerate(wiggle)]
+    return pd.DataFrame({"S": smooth, "W": wild}, index=index)
+
+
+def test_volatility_adjusted_prefers_the_smooth_riser():
+    prices = make_smooth_and_wild()
+    assert run(prices, 3).picks.iloc[-1] == ["W"]  # the higher return
+    assert run(prices, 3, volatility_adjusted=True).picks.iloc[-1] == ["S"]  # the better per risk
+
+
+def test_volatility_adjusted_off_is_the_default():
+    prices = make_smooth_and_wild()
+    pd.testing.assert_frame_equal(momentum_table(prices, 3), momentum_table(prices, 3, 0, False))
+    pd.testing.assert_series_equal(run(prices, 3).equity, run(prices, 3, volatility_adjusted=False).equity)
+
+
+def test_volatility_adjusted_score_is_return_over_daily_volatility():
+    prices = make_smooth_and_wild()
+    score = momentum_table(prices, 3, 1, volatility_adjusted=True)
+    date = pd.Timestamp("2021-06-30")
+    month_ends = momentum_table(prices, 3, 1).index
+    i = month_ends.get_loc(date)
+    window = prices["W"].pct_change().loc[month_ends[i - 3] : month_ends[i - 1]].iloc[1:]
+    expected = momentum_table(prices, 3, 1).loc[date, "W"] / window.std()
+    assert score.loc[date, "W"] == pytest.approx(expected)
+
+
+def test_volatility_adjusted_flat_asset_scores_zero():
+    """Cash does not move: 0 return over 0 volatility is a score of 0, not NaN."""
+    index = pd.bdate_range("2020-01-01", "2021-12-31")
+    falling = pd.Series([100 * 0.999**i * (1 + 0.01 * (i % 2)) for i in range(len(index))], index=index)
+    prices = pd.DataFrame({"X": falling, "CASH": 1.0})
+    score = momentum_table(prices, 3, volatility_adjusted=True).dropna()
+    assert (score["CASH"] == 0.0).all()
+    assert run(prices, 3, volatility_adjusted=True).picks.iloc[-1] == ["CASH"]  # X is negative
+
+
+def test_volatility_adjusted_has_no_lookahead():
+    prices = make_smooth_and_wild()
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > "2021-06-30"] = 1.0
+    a = momentum_table(prices, 3, 1, volatility_adjusted=True).loc[:"2021-06-30"]
+    b = momentum_table(wrecked, 3, 1, volatility_adjusted=True).loc[:"2021-06-30"]
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_volatility_adjusted_late_asset_is_not_ranked_before_it_has_history():
+    prices = make_smooth_and_wild()
+    prices.loc[prices.index[:300], "W"] = float("nan")
+    result = run(prices, 3, top_n=2, volatility_adjusted=True)
+    assert result.picks.iloc[0] == ["S"]
+    assert result.equity.min() > 0.5
+
+
+# ---- excluding top outliers --------------------------------------------------
+
+
+def scores_row(values: dict[str, float]) -> pd.DataFrame:
+    return pd.DataFrame([values], index=pd.to_datetime(["2021-01-31"]))
+
+
+EXAMPLE = {"A": 11.56, "B": 8.54, "C": 4.35, "D": 4.12, "E": 3.99}  # +1156%, +854%, +435%, ...
+
+
+def flagged(values: dict[str, float], threshold: float | None, keep: int = 1) -> list[str]:
+    flags = outlier_flags(scores_row(values), threshold, keep)
+    return list(flags.columns[flags.iloc[0]])
+
+
+def test_outlier_threshold_regulates_how_many_are_cut():
+    assert flagged(EXAMPLE, 3.5) == ["A", "B"]  # the usual cut-off
+    assert flagged(EXAMPLE, 10) == ["A"]  # less strong: only the most extreme
+    assert flagged(EXAMPLE, 15) == []  # nothing is that extreme
+
+
+def test_no_threshold_flags_nothing():
+    assert flagged(EXAMPLE, None) == []
+
+
+def test_only_the_high_side_is_flagged():
+    assert flagged({"A": 4.35, "B": 4.12, "C": 3.99, "D": 4.2, "E": -9.0}, 3.5) == []
+
+
+def test_similar_scores_have_no_outlier():
+    assert flagged({"A": 0.12, "B": 0.10, "C": 0.09, "D": 0.11, "E": 0.08}, 3.5) == []
+
+
+def test_too_few_assets_to_judge():
+    assert flagged({"A": 11.56, "B": 0.1, "C": 0.12}, 3.5) == []
+
+
+def test_no_spread_means_no_outliers():
+    """More than half of the scores equal (e.g. cash scores 0): MAD is 0, nothing to measure."""
+    assert flagged({"A": 5.0, "B": 0.0, "C": 0.0, "D": 0.0, "E": 0.0}, 3.5) == []
+
+
+def test_at_least_top_n_assets_always_remain():
+    values = {"A": 9.0, "B": 8.0, "C": 7.0, "D": 0.01, "E": 0.02, "F": 0.015, "G": 0.012}
+    assert flagged(values, 3.5, keep=1) == ["A", "B", "C"]
+    assert flagged(values, 3.5, keep=5) == ["A", "B"]  # 7 ranked, 5 must stay
+    assert flagged(values, 3.5, keep=7) == []
+
+
+def test_nan_scores_are_not_ranked_nor_flagged():
+    values = {**EXAMPLE, "F": float("nan")}
+    assert flagged(values, 3.5) == ["A", "B"]
+
+
+def outlier_prices() -> pd.DataFrame:
+    """Four steady assets and X, which explodes up in the first half of the data and then crashes."""
+    index = pd.bdate_range("2020-01-01", "2021-12-31")
+    half = len(index) // 2
+    columns = {name: [100 * (1 + rate) ** i for i in range(len(index))]
+               for name, rate in {"A": 0.0010, "B": 0.0009, "C": 0.0008, "D": 0.0007}.items()}
+    columns["X"] = [100 * 1.02**i if i < half else 100 * 1.02**half * 0.97 ** (i - half) for i in range(len(index))]
+    return pd.DataFrame(columns, index=index)
+
+
+def test_default_excludes_nothing():
+    result = run(outlier_prices(), 3)
+    assert result.excluded.map(len).sum() == 0
+    assert result.excluded.index.equals(result.picks.index)
+    pd.testing.assert_series_equal(result.equity, run(outlier_prices(), 3, outlier_threshold=None).equity)
+
+
+def test_the_outlier_is_not_picked_and_is_listed():
+    prices = outlier_prices()
+    plain = run(prices, 3)
+    result = run(prices, 3, outlier_threshold=3.5)
+    first = result.picks.index[0]
+    assert plain.picks[first] == ["X"]  # the explosion wins without the option
+    assert result.picks[first] == ["A"]  # the best of the rest
+    assert result.excluded[first] == ["X"]
+    assert all("X" not in pick for pick, out in zip(result.picks, result.excluded) if out)
+
+
+def test_excluded_has_the_same_dates_as_picks_in_a_custom_period():
+    result = run(outlier_prices(), 3, start="2020-12-15", rebalance=2, outlier_threshold=3.5)
+    assert result.excluded.index.equals(result.picks.index)
+
+
+def test_outlier_exclusion_works_with_top_n_and_keeps_n_assets():
+    result = run(outlier_prices(), 3, top_n=2, outlier_threshold=3.5)
+    assert all(len(pick) == 2 for pick in result.picks)
+    assert result.composition.sum(axis=1).to_numpy() == pytest.approx(1.0)
+
+
+def test_outlier_exclusion_has_no_lookahead():
+    prices = outlier_prices()
+    cutoff = pd.Timestamp("2021-06-30")
+    base = run(prices.loc[:cutoff], 3, outlier_threshold=3.5)
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > cutoff] = 1.0
+    other = run(wrecked, 3, outlier_threshold=3.5)
+    pd.testing.assert_series_equal(base.equity.loc[:cutoff], other.equity.loc[:cutoff])
+
+
+def test_outlier_exclusion_with_volatility_adjusted_momentum():
+    result = run(outlier_prices(), 3, volatility_adjusted=True, outlier_threshold=3.5)
+    assert result.excluded.index.equals(result.picks.index)
+
+
+def test_outlier_threshold_must_be_positive():
+    with pytest.raises(ValueError):
+        run(outlier_prices(), 3, outlier_threshold=0)
