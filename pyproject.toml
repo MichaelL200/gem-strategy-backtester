@@ -2,6 +2,9 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.poetry]
+package-mode = false
+
 [project]
 name = "gem-strategy-backtester"
 version = "0.2.0"
