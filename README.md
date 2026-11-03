@@ -51,7 +51,7 @@ Requires Python 3.x+.
 
 3. **Install dependencies**
 ```sh
-   pip install -r requirements.txt
+   pip install -e .
 ```
 
 4. **Run the app**
@@ -62,6 +62,12 @@ Requires Python 3.x+.
 The app opens in your browser at <http://localhost:8501>. If it doesn't, open that address manually. Press `Ctrl+C` in the terminal to stop it.
 
 Run the tests with `pytest`.
+
+For development and testing dependencies, use:
+
+```sh
+pip install -e ".[test]"
+```
 
 ## Structure
 
@@ -74,6 +80,8 @@ app/
     └── sidebar.py       # Shared sidebar and request helpers
 gem_backtester/          # Backtesting engine and data modules
 tests/                   # pytest and Streamlit AppTest coverage
+notebooks/               # Exploratory strategy analysis
+pyproject.toml            # Package, dependency, and test configuration
 ```
 ## UI Theme
 

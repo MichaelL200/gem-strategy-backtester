@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gem-strategy-backtester"
+version = "0.2.0"
+description = "Interactive platform for researching and backtesting quantitative trading strategies."
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "yfinance>=0.2.40",
+    "streamlit>=1.50",
+    "plotly>=5.20",
+    "python-dateutil>=2.8",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=9.2.0",
+]
+dev = [
+    "ipykernel",
+    "nbformat>=4.2.0",
+    "ipywidgets",
+]
+
+[tool.setuptools.packages.find]
+include = ["gem_backtester*", "app*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
