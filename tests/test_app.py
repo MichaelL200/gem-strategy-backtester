@@ -8,8 +8,8 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-from gem_backtester import data
-from gem_backtester.assets import ASSETS, CATEGORIES
+import data
+from assets import ASSETS, CATEGORIES
 
 APP = str(Path(__file__).parent.parent / "app.py")
 

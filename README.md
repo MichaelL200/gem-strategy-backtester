@@ -2,6 +2,9 @@
 
 A modular Python tool to backtest and analyze Global Equities Momentum (GEM) and custom momentum-based quantitative strategies.
 
+See the [architecture guide](docs/ARCHITECTURE.md) for the package layout,
+backtest flow, mathematical definitions, caching, and currency conversion.
+
 🚀 **Live demo:** [gem-strategy-backtester.streamlit.app](https://gem-strategy-backtester.streamlit.app)
 
 ## How GEM Works
@@ -69,6 +72,9 @@ For development and testing dependencies, use:
 pip install -e ".[test]"
 ```
 
+The exploratory model is available at
+[notebooks/exploratory_model.ipynb](notebooks/exploratory_model.ipynb).
+
 ## Structure
 
 ```
@@ -78,11 +84,23 @@ app/
 └── components/
     ├── charts.py        # Pure Plotly chart builders
     └── sidebar.py       # Shared sidebar and request helpers
-gem_backtester/          # Backtesting engine and data modules
+src/
+├── assets.py             # Built-in assets and ticker parsing
+├── data.py               # Yahoo Finance loading, caching, and currencies
+├── periods.py            # Backtest period and availability helpers
+└── backtest/             # Strategy interface, engine, momentum, and metrics
 tests/                   # pytest and Streamlit AppTest coverage
 notebooks/               # Exploratory strategy analysis
 pyproject.toml            # Package, dependency, and test configuration
 ```
+
+For implementation details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+The modules in `src/` are the reusable core of the project. The Streamlit
+application imports them directly (`assets`, `data`, `periods`, and
+`backtest`); keeping them outside `app/` makes the engine usable from tests,
+scripts, and notebooks without Streamlit state.
+
 ## UI Theme
 
 The app follows your system's light/dark setting by default. To manually change it, open the ⋮ menu (top right) and select **System**, **Light** or **Dark**.

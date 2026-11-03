@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 
-from gem_backtester.backtest import momentum_table
+from backtest import momentum_table
 
 ALL = "All available data"
 COMMON = "Common period"

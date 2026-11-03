@@ -8,8 +8,10 @@ import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC = ROOT / "src"
+for path in (ROOT, SRC):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from app.components.charts import (
     create_composition_chart,
@@ -17,10 +19,10 @@ from app.components.charts import (
     create_main_chart,
 )
 from app.components.sidebar import highlight, is_mobile, prices_for
-from gem_backtester import backtest
-from gem_backtester.assets import CATEGORIES, normalize_ticker, split_tickers
-from gem_backtester.data import CURRENCIES, load_prices
-from gem_backtester.periods import ALL, COMMON, CUSTOM, MODES, availability, duration_text, window_text
+import backtest
+from assets import CATEGORIES, normalize_ticker, split_tickers
+from data import CURRENCIES, load_prices
+from periods import ALL, COMMON, CUSTOM, MODES, availability, duration_text, window_text
 
 DEFAULT_ASSETS = {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
 DEFAULT_LOOKBACK = 12

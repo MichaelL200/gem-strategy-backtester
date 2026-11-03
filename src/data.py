@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from gem_backtester.assets import ASSETS
+from assets import ASSETS
 
 CACHE_DIR = Path("data/cache")
 MAX_AGE_SECONDS = 12 * 3600

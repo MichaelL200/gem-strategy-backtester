@@ -1,6 +1,6 @@
 import pytest
 
-from gem_backtester.assets import normalize_ticker, split_tickers
+from assets import normalize_ticker, split_tickers
 
 
 @pytest.mark.parametrize(

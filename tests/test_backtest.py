@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from gem_backtester.backtest import momentum_table, outlier_flags, run
-from gem_backtester.periods import duration_text
+from backtest import momentum_table, outlier_flags, run
+from periods import duration_text
 
 
 def make_prices() -> pd.DataFrame:

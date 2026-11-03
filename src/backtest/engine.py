@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from gem_backtester.backtest.metrics import Result, compute_metrics
-from gem_backtester.backtest.momentum import (
+from backtest.metrics import Result, compute_metrics
+from backtest.momentum import (
     DEFAULT_OUTLIER_THRESHOLD,
     MIN_OUTLIER_ASSETS,
     momentum_table,

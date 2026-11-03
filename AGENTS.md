@@ -1,11 +1,26 @@
 # AGENTS.md
 
-Python/Streamlit backtester for momentum strategy on financial markets: ranks assets by past return and holds the best.
+Python/Streamlit backtester for momentum strategies on financial markets.
+The Streamlit UI lives in `app/`, while reusable backtesting and data logic
+lives in `src/`.
 
 ## Commands
 
 - Run: `streamlit run app.py`
 - Test: `pytest` (all tests must pass before a commit)
+- Install: `pip install -e .`
+- Install test dependencies: `pip install -e ".[test]"`
+
+## Structure
+
+- `app.py`: root launcher for Streamlit deployment.
+- `app/`: Streamlit orchestration and UI components.
+- `src/`: reusable assets, data loading, period helpers, strategies, engine,
+  and metrics. The top-level modules are `assets`, `data`, and `periods`;
+  `backtest` is the strategy package.
+- `tests/`: unit and Streamlit `AppTest` coverage.
+- `docs/`: architecture and technical documentation.
+- `notebooks/`: exploratory analysis.
 
 ## Rules
 

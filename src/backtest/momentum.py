@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from gem_backtester.backtest.base import BaseStrategy
-from gem_backtester.backtest.metrics import TRADING_DAYS
+from backtest.base import BaseStrategy
+from backtest.metrics import TRADING_DAYS
 
 MIN_OUTLIER_ASSETS = 4  # below this the median and spread of the scores mean nothing
 MAD_SCALE = 0.6745  # makes the modified z-score comparable to a normal z-score
@@ -71,7 +71,7 @@ class MomentumStrategy(BaseStrategy):
     """Ranks assets by their return over a lookback window, optionally volatility-adjusted.
 
     This is the built-in strategy: it implements :class:`BaseStrategy` and is what
-    :func:`~gem_backtester.backtest.engine.run` uses by default via its
+    :func:`~backtest.engine.run` uses by default via its
     ``volatility_adjusted`` parameter.
 
     Args:

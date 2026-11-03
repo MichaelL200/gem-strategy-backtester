@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from gem_backtester.periods import availability, duration_text, window_months, window_text
+from periods import availability, duration_text, window_months, window_text
 
 
 def test_default_window_is_eleven_months():

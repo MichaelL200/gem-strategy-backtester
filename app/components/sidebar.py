@@ -3,7 +3,7 @@
 import pandas as pd
 import streamlit as st
 
-from gem_backtester.data import load_prices
+from data import load_prices
 
 
 def is_mobile() -> bool:

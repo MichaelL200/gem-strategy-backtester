@@ -3,8 +3,8 @@ import sys
 import pandas as pd
 import pytest
 
-from gem_backtester import data
-from gem_backtester.assets import ASSETS
+import data
+from assets import ASSETS
 
 
 def test_tickers_are_unique():
