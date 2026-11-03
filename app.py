@@ -116,6 +116,7 @@ def categories() -> dict[str, dict[str, str]]:
 def all_assets() -> dict[str, str]:
     return {name: ticker for group in categories().values() for name, ticker in group.items()}
 
+
 assets = all_assets()
 
 # ---- 2. Benchmarks ---------------------------------------------------------
@@ -335,13 +336,13 @@ if not names:
 try:
     asset_tickers = [assets[n] for n in names]
     bench_tickers = [assets[b] for b in benchmarks] if show_benchmarks else []
-    
+
     # Extract unique tickers while maintaining predictable order
     all_tickers_list = []
     for t in asset_tickers + bench_tickers:
         if t not in all_tickers_list:
             all_tickers_list.append(t)
-            
+
     prices = prices_for(tuple(all_tickers_list), currency)
 except ValueError as error:
     st.error(str(error))
@@ -354,7 +355,7 @@ if prices.attrs.get("unknown_currency"):
         "so its prices are taken as USD."
     )
     highlight("assets")
-    
+
 asset_prices = prices[asset_tickers]
 avail = availability(asset_prices, lookback, skip) if lookback > skip else None
 
@@ -427,7 +428,7 @@ st.caption(
     f"Latest pick{'s' if both or len(result.picks.iloc[-1]) > 1 else ''}: **{picks}** "
     f"(as of {result.picks.index[-1]:%Y-%m-%d})"
 )
-if outlier_threshold is not None:
+if outlier_threshold is not None and n_assets >= backtest.MIN_OUTLIER_ASSETS:
     cut = "; ".join(
         ", ".join(label[t] for t in r.excluded.iloc[-1]) + (f" ({name})" if both else "")
         for name, r in results.items()

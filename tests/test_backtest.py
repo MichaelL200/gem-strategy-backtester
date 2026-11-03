@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from gem_backtester.backtest import momentum_table, run
+from gem_backtester.backtest import momentum_table, outlier_flags, run
 from gem_backtester.periods import duration_text
 
 
@@ -362,3 +362,116 @@ def test_volatility_adjusted_late_asset_is_not_ranked_before_it_has_history():
     result = run(prices, 3, top_n=2, volatility_adjusted=True)
     assert result.picks.iloc[0] == ["S"]
     assert result.equity.min() > 0.5
+
+
+# ---- excluding top outliers --------------------------------------------------
+
+
+def scores_row(values: dict[str, float]) -> pd.DataFrame:
+    return pd.DataFrame([values], index=pd.to_datetime(["2021-01-31"]))
+
+
+EXAMPLE = {"A": 11.56, "B": 8.54, "C": 4.35, "D": 4.12, "E": 3.99}  # +1156%, +854%, +435%, ...
+
+
+def flagged(values: dict[str, float], threshold: float | None, keep: int = 1) -> list[str]:
+    flags = outlier_flags(scores_row(values), threshold, keep)
+    return list(flags.columns[flags.iloc[0]])
+
+
+def test_outlier_threshold_regulates_how_many_are_cut():
+    assert flagged(EXAMPLE, 3.5) == ["A", "B"]  # the usual cut-off
+    assert flagged(EXAMPLE, 10) == ["A"]  # less strong: only the most extreme
+    assert flagged(EXAMPLE, 15) == []  # nothing is that extreme
+
+
+def test_no_threshold_flags_nothing():
+    assert flagged(EXAMPLE, None) == []
+
+
+def test_only_the_high_side_is_flagged():
+    assert flagged({"A": 4.35, "B": 4.12, "C": 3.99, "D": 4.2, "E": -9.0}, 3.5) == []
+
+
+def test_similar_scores_have_no_outlier():
+    assert flagged({"A": 0.12, "B": 0.10, "C": 0.09, "D": 0.11, "E": 0.08}, 3.5) == []
+
+
+def test_too_few_assets_to_judge():
+    assert flagged({"A": 11.56, "B": 0.1, "C": 0.12}, 3.5) == []
+
+
+def test_no_spread_means_no_outliers():
+    """More than half of the scores equal (e.g. cash scores 0): MAD is 0, nothing to measure."""
+    assert flagged({"A": 5.0, "B": 0.0, "C": 0.0, "D": 0.0, "E": 0.0}, 3.5) == []
+
+
+def test_at_least_top_n_assets_always_remain():
+    values = {"A": 9.0, "B": 8.0, "C": 7.0, "D": 0.01, "E": 0.02, "F": 0.015, "G": 0.012}
+    assert flagged(values, 3.5, keep=1) == ["A", "B", "C"]
+    assert flagged(values, 3.5, keep=5) == ["A", "B"]  # 7 ranked, 5 must stay
+    assert flagged(values, 3.5, keep=7) == []
+
+
+def test_nan_scores_are_not_ranked_nor_flagged():
+    values = {**EXAMPLE, "F": float("nan")}
+    assert flagged(values, 3.5) == ["A", "B"]
+
+
+def outlier_prices() -> pd.DataFrame:
+    """Four steady assets and X, which explodes up in the first half of the data and then crashes."""
+    index = pd.bdate_range("2020-01-01", "2021-12-31")
+    half = len(index) // 2
+    columns = {name: [100 * (1 + rate) ** i for i in range(len(index))]
+               for name, rate in {"A": 0.0010, "B": 0.0009, "C": 0.0008, "D": 0.0007}.items()}
+    columns["X"] = [100 * 1.02**i if i < half else 100 * 1.02**half * 0.97 ** (i - half) for i in range(len(index))]
+    return pd.DataFrame(columns, index=index)
+
+
+def test_default_excludes_nothing():
+    result = run(outlier_prices(), 3)
+    assert result.excluded.map(len).sum() == 0
+    assert result.excluded.index.equals(result.picks.index)
+    pd.testing.assert_series_equal(result.equity, run(outlier_prices(), 3, outlier_threshold=None).equity)
+
+
+def test_the_outlier_is_not_picked_and_is_listed():
+    prices = outlier_prices()
+    plain = run(prices, 3)
+    result = run(prices, 3, outlier_threshold=3.5)
+    first = result.picks.index[0]
+    assert plain.picks[first] == ["X"]  # the explosion wins without the option
+    assert result.picks[first] == ["A"]  # the best of the rest
+    assert result.excluded[first] == ["X"]
+    assert all("X" not in pick for pick, out in zip(result.picks, result.excluded) if out)
+
+
+def test_excluded_has_the_same_dates_as_picks_in_a_custom_period():
+    result = run(outlier_prices(), 3, start="2020-12-15", rebalance=2, outlier_threshold=3.5)
+    assert result.excluded.index.equals(result.picks.index)
+
+
+def test_outlier_exclusion_works_with_top_n_and_keeps_n_assets():
+    result = run(outlier_prices(), 3, top_n=2, outlier_threshold=3.5)
+    assert all(len(pick) == 2 for pick in result.picks)
+    assert result.composition.sum(axis=1).to_numpy() == pytest.approx(1.0)
+
+
+def test_outlier_exclusion_has_no_lookahead():
+    prices = outlier_prices()
+    cutoff = pd.Timestamp("2021-06-30")
+    base = run(prices.loc[:cutoff], 3, outlier_threshold=3.5)
+    wrecked = prices.copy()
+    wrecked.loc[wrecked.index > cutoff] = 1.0
+    other = run(wrecked, 3, outlier_threshold=3.5)
+    pd.testing.assert_series_equal(base.equity.loc[:cutoff], other.equity.loc[:cutoff])
+
+
+def test_outlier_exclusion_with_volatility_adjusted_momentum():
+    result = run(outlier_prices(), 3, volatility_adjusted=True, outlier_threshold=3.5)
+    assert result.excluded.index.equals(result.picks.index)
+
+
+def test_outlier_threshold_must_be_positive():
+    with pytest.raises(ValueError):
+        run(outlier_prices(), 3, outlier_threshold=0)

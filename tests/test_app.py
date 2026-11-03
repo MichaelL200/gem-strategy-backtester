@@ -21,6 +21,10 @@ def fake_app(monkeypatch):
     def fake_load(ticker):
         if ticker == "NOPE":
             raise ValueError("No price data for NOPE")
+        if ticker == "SPIKE":  # grows 1% a day: far above the others
+            steps = np.arange(len(index))
+            wiggle = 1 + 0.001 * np.where(steps % 2, 1, -1)
+            return pd.Series(100 * 1.01**steps * wiggle, index=index)
         return pd.Series(100 * np.cumprod(1 + rng.normal(0.0003, 0.01, len(index))), index=index)
 
     monkeypatch.setattr(data, "_load", fake_load)
@@ -33,17 +37,25 @@ def app(monkeypatch):
     return fake_app(monkeypatch)
 
 
+ROW = 8  # metrics per row: the first one (Period or Strategy) and seven statistics
+
+
+def rows(app) -> int:
+    """How many rows of metrics are shown (one per strategy)."""
+    return len(app.metric) // ROW
+
+
 def selected(app) -> dict[str, list[str]]:
     return {g.key.removeprefix("pills_"): g.value for g in app.sidebar.button_group}
 
 
 def test_select_all_and_clear(app):
-    app.sidebar.button[0].click().run()  # Select all
+    app.sidebar.button[0].click().run()  # All
     assert not app.exception
     assert selected(app) == {category: list(group) for category, group in CATEGORIES.items()}
     assert app.slider(key="top_n").max == len(ASSETS)
 
-    app.sidebar.button[1].click().run()  # Clear
+    app.sidebar.button[2].click().run()  # Clear
     assert not app.exception
     assert all(not names for names in selected(app).values())
     assert [w.value for w in app.warning] == ["Choose at least one asset."]
@@ -75,7 +87,7 @@ def test_window_info_has_only_the_length(app):
 
 
 def test_single_asset_shows_a_warning_and_the_charts(app):
-    app.sidebar.button[1].click().run()  # Clear
+    app.sidebar.button[2].click().run()  # Clear
     app.session_state["pills_Equities"] = ["S&P 500"]
     app.run()
     assert not app.exception
@@ -83,14 +95,14 @@ def test_single_asset_shows_a_warning_and_the_charts(app):
     assert app.warning[0].value.startswith("Only one asset is selected")
     assert "st-key-assets" in " ".join(m.value for m in app.markdown)
     assert not [s for s in app.slider if s.key == "top_n"]  # nothing to choose between
-    assert len(app.metric) == 6
-    assert len(app.get("plotly_chart")) == 3
-    assert "Latest pick: **S&P 500**" in " ".join(c.value for c in app.caption)
+    assert rows(app) == 2  # both strategies
+    assert len(app.get("plotly_chart")) == 4  # main, drawdown and one composition per strategy
+    assert "S&P 500" in " ".join(c.value for c in app.caption if "Latest pick" in c.value)
 
 
 def add_ticker(app, text):
     app.text_area(key="new_ticker").set_value(text)
-    app.sidebar.button[2].click().run()  # the form's "Add" button (after Select all and Clear)
+    app.sidebar.button[3].click().run()  # the form's "Add" button (after All, Default and Clear)
 
 
 def test_custom_ticker_is_added_and_selected(app):
@@ -98,11 +110,11 @@ def test_custom_ticker_is_added_and_selected(app):
     assert not app.exception
     assert not app.warning
     assert selected(app)["Custom"] == ["NVDA"]
-    assert len(app.metric) == 6  # the backtest runs with the new asset
+    assert rows(app) == 2  # the backtest runs with the new asset
 
-    app.sidebar.button[1].click().run()  # Clear
+    app.sidebar.button[2].click().run()  # Clear
     assert selected(app)["Custom"] == []
-    app.sidebar.button[0].click().run()  # Select all
+    app.sidebar.button[0].click().run()  # All
     assert selected(app)["Custom"] == ["NVDA"]
 
 
@@ -111,7 +123,7 @@ def test_many_custom_tickers_are_added_at_once(app):
     assert not app.exception
     assert not app.warning
     assert selected(app)["Custom"] == ["NVDA", "AAPL", "MSFT", "TSLA", "^GSPC"]
-    assert len(app.metric) == 6
+    assert rows(app) == 2
 
 
 def test_good_tickers_are_kept_when_others_are_refused(app):
@@ -148,17 +160,21 @@ def test_bad_custom_ticker_is_refused_with_a_warning(app, text, message):
 
 
 def test_strategy_choice_normal_volatility_adjusted_or_both(app):
-    assert app.sidebar.radio(key="strategy").value == "Normal"
-    assert len(app.metric) == 6
+    assert app.sidebar.radio(key="strategy").value == "Both"  # the default
+    assert rows(app) == 2
+
+    app.sidebar.radio(key="strategy").set_value("Normal").run()
+    assert not app.exception
+    assert rows(app) == 1
 
     app.sidebar.radio(key="strategy").set_value("Volatility-adjusted").run()
     assert not app.exception
-    assert len(app.metric) == 6
+    assert rows(app) == 1
 
     app.sidebar.radio(key="strategy").set_value("Both").run()
     assert not app.exception
     assert [m.value for m in app.metric if m.label == "Strategy"] == ["Normal", "Volatility-adjusted"]
-    assert len(app.metric) == 12
+    assert rows(app) == 2
     assert len(app.get("plotly_chart")) == 4  # main, drawdown and one composition per strategy
     assert "(Normal)" in " ".join(c.value for c in app.caption)
 
@@ -169,7 +185,7 @@ def test_currency_choice(app):
 
     app.selectbox(key="currency").set_value("EUR").run()
     assert not app.exception
-    assert len(app.metric) == 6
+    assert rows(app) == 2
     assert "Currency: **EUR**" in " ".join(c.value for c in app.caption)
 
 
@@ -193,7 +209,7 @@ def legends(app) -> list[str | None]:
 
 
 def test_desktop_keeps_the_legend_on_the_right_and_has_no_hint(app):
-    assert legends(app) == [None, None, None]  # main, drawdown, composition
+    assert legends(app) == [None] * 4  # main, drawdown and two compositions
     assert not [c for c in app.caption if "arrow at the top left" in c.value]
 
 
@@ -202,18 +218,18 @@ def test_phone_gets_a_hint_and_the_legends_under_the_charts(monkeypatch):
     phone = fake_app(monkeypatch)
     assert not phone.exception
     assert [c.value for c in phone.caption if "arrow at the top left" in c.value]
+    phone.sidebar.radio(key="strategy").set_value("Normal").run()
     assert legends(phone) == ["h", None, "h"]  # the drawdown chart has no legend
 
 
 def test_a_desktop_browser_is_not_a_phone(monkeypatch):
     monkeypatch.setattr(st, "context", SimpleNamespace(headers={"User-Agent": DESKTOP}))
-    assert legends(fake_app(monkeypatch)) == [None, None, None]
+    assert legends(fake_app(monkeypatch)) == [None] * 4
 
 
 def test_phone_legends_with_both_strategies(monkeypatch):
     monkeypatch.setattr(st, "context", SimpleNamespace(headers={"User-Agent": PHONE}))
-    phone = fake_app(monkeypatch)
-    phone.sidebar.radio(key="strategy").set_value("Both").run()
+    phone = fake_app(monkeypatch)  # opens with both strategies
     assert not phone.exception
     assert legends(phone) == ["h", "h", "h", "h"]  # main, drawdown and two compositions
 
@@ -226,14 +242,56 @@ def test_layout_rules_for_small_screens(app):
 
 
 def test_cash_alone_runs_with_a_warning_and_no_sharpe(app):
-    app.sidebar.button[1].click().run()  # Clear
+    app.sidebar.button[2].click().run()  # Clear
     app.session_state["pills_Cash"] = ["Cash (USD)"]
     app.run()
     assert not app.exception
-    assert [m.value for m in app.metric if m.label == "Sharpe"] == ["n/a"]  # no volatility
+    assert [m.value for m in app.metric if m.label == "Sharpe"] == ["n/a"] * 2  # no volatility
     assert len(app.warning) == 1
     assert app.warning[0].value.startswith("Only one asset is selected")
+    assert rows(app) == 2
 
-    app.sidebar.radio(key="strategy").set_value("Both").run()
+
+# ---- excluding top outliers --------------------------------------------------
+
+
+def test_outliers_are_not_excluded_by_default(app):
+    assert app.sidebar.toggle(key="exclude_outliers").value is False
+    assert not [s for s in app.slider if s.key == "outlier_threshold"]
+    assert "Excluded as outliers" not in " ".join(c.value for c in app.caption)
+
+
+def test_the_top_outlier_is_excluded_and_named(app):
+    add_ticker(app, "SPIKE")  # the 5th asset, far above the others
+    app.sidebar.radio(key="strategy").set_value("Normal").run()
+    assert "Excluded as outliers" not in " ".join(c.value for c in app.caption)
+
+    app.sidebar.toggle(key="exclude_outliers").set_value(True).run()
     assert not app.exception
-    assert len(app.metric) == 12
+    assert not app.warning
+    assert app.slider(key="outlier_threshold").value == 3.5
+    assert "Excluded as outliers at the latest rebalance: **SPIKE**" in " ".join(c.value for c in app.caption)
+
+    app.slider(key="outlier_threshold").set_value(10.0).run()  # still far above
+    assert "Excluded as outliers at the latest rebalance: **SPIKE**" in " ".join(c.value for c in app.caption)
+
+
+def test_both_strategies_name_what_each_excluded(app):
+    add_ticker(app, "SPIKE")
+    app.sidebar.toggle(key="exclude_outliers").set_value(True).run()  # the app opens with both
+    caption = " ".join(c.value for c in app.caption)
+    assert "Excluded as outliers at the latest rebalance: **SPIKE (Normal); SPIKE (Volatility-adjusted)**" in caption
+
+
+def test_outliers_need_at_least_four_assets(app):
+    app.sidebar.toggle(key="exclude_outliers").set_value(True).run()  # the 4 default assets
+    assert not app.warning
+
+    app.sidebar.button[2].click().run()  # Clear
+    app.session_state["pills_Equities"] = ["S&P 500", "Nasdaq 100"]
+    app.run()
+    assert [w.value for w in app.warning if w.value.startswith("Excluding outliers")] == [
+        "Excluding outliers needs at least 4 ranked assets: with fewer, nothing is excluded."
+    ]
+    assert "st-key-outliers" in " ".join(m.value for m in app.markdown)
+    assert "Excluded as outliers" not in " ".join(c.value for c in app.caption)
