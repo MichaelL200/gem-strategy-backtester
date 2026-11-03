@@ -66,13 +66,14 @@ Run the tests with `pytest`.
 ## Structure
 
 ```
-app.py                  # Streamlit UI
-gem_backtester/
-├── assets.py           # Selectable assets by category (name -> ETF ticker); add new ones here
-├── data.py             # Yahoo Finance download + CSV cache (data/cache/)
-├── periods.py          # Period modes, durations ("11 months"), data availability
-└── backtest.py         # Strategy and metrics (pure logic, no I/O)
-tests/                  # pytest
+app.py                  # Backward-compatible Streamlit launcher
+app/
+├── app.py               # Modular Streamlit entry point
+└── components/
+    ├── charts.py        # Pure Plotly chart builders
+    └── sidebar.py       # Shared sidebar and request helpers
+gem_backtester/          # Backtesting engine and data modules
+tests/                   # pytest and Streamlit AppTest coverage
 ```
 ## UI Theme
 
