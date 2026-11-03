@@ -11,3 +11,6 @@ data/cache/*
 .hypothesis/
 .import_linter_cache/
 .directory
+.env
+.aider*
+!.aider.conf.yml

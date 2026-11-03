@@ -1,0 +1,4 @@
+read: AGENTS.md
+test-cmd: pytest
+auto-test: true
+chat-language: English
