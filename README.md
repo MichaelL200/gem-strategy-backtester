@@ -64,7 +64,12 @@ Requires Python 3.x+.
 
 The app opens in your browser at <http://localhost:8501>. If it doesn't, open that address manually. Press `Ctrl+C` in the terminal to stop it.
 
-Run the tests with `pytest`.
+Run the tests with `pytest`. Check Python lint with Ruff:
+
+```sh
+pip install -e ".[lint]"
+ruff check .
+```
 
 For development and testing dependencies, use:
 

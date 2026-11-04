@@ -8,8 +8,9 @@ lives in `src/`.
 
 - Run: `streamlit run app.py`
 - Test: `pytest` (all tests must pass before a commit)
+- Lint: `ruff check .`
 - Install: `pip install -e .`
-- Install test dependencies: `pip install -e ".[test]"`
+- Install test and lint dependencies: `pip install -e ".[test,lint]"`
 
 ## Structure
 

@@ -22,7 +22,7 @@ from app.components.sidebar import highlight, is_mobile, prices_for
 import backtest
 from assets import CATEGORIES, normalize_ticker, split_tickers
 from data import CURRENCIES, load_prices
-from periods import ALL, COMMON, CUSTOM, MODES, availability, duration_text, window_text
+from periods import COMMON, CUSTOM, MODES, availability, duration_text, window_text
 
 DEFAULT_ASSETS = {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
 DEFAULT_LOOKBACK = 12

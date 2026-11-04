@@ -7,8 +7,6 @@ import pandas as pd
 
 from backtest.metrics import Result, compute_metrics
 from backtest.momentum import (
-    DEFAULT_OUTLIER_THRESHOLD,
-    MIN_OUTLIER_ASSETS,
     momentum_table,
     outlier_flags,
 )

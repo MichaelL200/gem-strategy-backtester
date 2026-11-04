@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 from backtest.base import BaseStrategy
-from backtest.metrics import TRADING_DAYS
 
 MIN_OUTLIER_ASSETS = 4  # below this the median and spread of the scores mean nothing
 MAD_SCALE = 0.6745  # makes the modified z-score comparable to a normal z-score
