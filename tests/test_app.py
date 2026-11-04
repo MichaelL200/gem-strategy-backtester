@@ -219,7 +219,7 @@ def test_phone_gets_a_hint_and_the_legends_under_the_charts(monkeypatch):
     assert not phone.exception
     assert [c.value for c in phone.caption if "arrow at the top left" in c.value]
     phone.sidebar.radio(key="strategy").set_value("Normal").run()
-    assert legends(phone) == ["h", None, "h"]  # the drawdown chart has no legend
+    assert legends(phone) == ["h", "h", "h"]  # the drawdown chart includes selected benchmarks
 
 
 def test_a_desktop_browser_is_not_a_phone(monkeypatch):
