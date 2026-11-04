@@ -295,3 +295,51 @@ def test_outliers_need_at_least_four_assets(app):
     ]
     assert "st-key-outliers" in " ".join(m.value for m in app.markdown)
     assert "Excluded as outliers" not in " ".join(c.value for c in app.caption)
+
+
+# ---- showing the assets on the main chart -----------------------------------
+
+
+def chart_names(app) -> set[str]:
+    """The names of the lines in the main chart."""
+    return {t.get("name") for t in json.loads(app.get("plotly_chart")[0].proto.spec)["data"]}
+
+
+def test_there_is_no_compare_to_benchmarks_toggle(app):
+    assert not [t for t in app.sidebar.toggle if t.label == "Compare to benchmarks"]
+
+
+def test_assets_are_shown_on_the_chart_by_default(app):
+    assert app.sidebar.toggle(key="show_assets").value is True
+    assert {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"} <= chart_names(app)
+
+
+def test_hiding_the_assets_keeps_the_benchmark_and_the_strategies(app):
+    app.sidebar.toggle(key="show_assets").set_value(False).run()
+    assert not app.exception
+    names = chart_names(app)
+    assert not names & {"Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
+    # MSCI World is both a selected asset and the default benchmark, so it stays
+    assert {"MSCI World (DM)", "Strategy (Normal)", "Strategy (Volatility-adjusted)"} <= names
+    assert len(app.get("plotly_chart")) == 4  # drawdown and composition charts are unaffected
+
+    app.sidebar.toggle(key="show_assets").set_value(True).run()
+    assert {"Gold", "Bonds 7-10Y", "Bonds 0-1Y"} <= chart_names(app)
+
+
+def test_hiding_the_assets_still_shows_a_benchmark_that_is_not_an_asset(app):
+    app.sidebar.multiselect[0].set_value(["S&P 500"]).run()  # not one of the 4 default assets
+    app.sidebar.toggle(key="show_assets").set_value(False).run()
+    assert not app.exception
+    names = chart_names(app)
+    assert "S&P 500" in names
+    assert not names & {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}
+
+
+def test_hiding_the_assets_without_benchmarks_leaves_only_the_strategies(app):
+    app.sidebar.multiselect[0].set_value([]).run()
+    app.sidebar.toggle(key="show_assets").set_value(False).run()
+    assert not app.exception
+    names = chart_names(app)
+    assert {"Strategy (Normal)", "Strategy (Volatility-adjusted)"} <= names
+    assert not names & {"MSCI World (DM)", "Gold", "Bonds 7-10Y", "Bonds 0-1Y"}

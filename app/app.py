@@ -108,17 +108,14 @@ assets = all_assets()
 # ---- 2. Benchmarks ---------------------------------------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 2 · Benchmarks")
-show_benchmarks = st.sidebar.toggle("Compare to benchmarks", value=True)
-benchmarks = []
-if show_benchmarks:
-    default_bench = ["MSCI World (DM)"] if "MSCI World (DM)" in assets else []
-    benchmarks = st.sidebar.multiselect(
-        "Benchmarks",
-        options=list(assets.keys()),
-        default=default_bench,
-        format_func=lambda n: n if n == assets[n] else f"{n} · {assets[n]}",
-        label_visibility="collapsed"
-    )
+default_bench = ["MSCI World (DM)"] if "MSCI World (DM)" in assets else []
+benchmarks = st.sidebar.multiselect(
+    "Benchmarks",
+    options=list(assets.keys()),
+    default=default_bench,
+    format_func=lambda n: n if n == assets[n] else f"{n} · {assets[n]}",
+    label_visibility="collapsed",
+)
 
 
 # ---- 3. Assets -------------------------------------------------------------
@@ -240,6 +237,12 @@ else:
     )
     highlight("assets")
 
+show_assets = st.sidebar.toggle(
+    "Show assets on the chart",
+    value=True,
+    key="show_assets",
+)
+
 # ---- 4. Momentum -----------------------------------------------------------
 st.sidebar.divider()
 st.sidebar.markdown("### 4 · Momentum")
@@ -321,7 +324,7 @@ if not names:
 
 try:
     asset_tickers = [assets[n] for n in names]
-    bench_tickers = [assets[b] for b in benchmarks] if show_benchmarks else []
+    bench_tickers = [assets[b] for b in benchmarks]
 
     # Extract unique tickers while maintaining predictable order
     all_tickers_list = []
@@ -459,7 +462,7 @@ line_names = {name: f"Strategy ({name})" if both else "Strategy" for name in res
 line_colors = dict(zip(results, (GREEN, PINK)))
 compare = result.assets.rename(columns=label)
 
-if show_benchmarks and benchmarks:
+if benchmarks:
     bench_prices = prices[bench_tickers].loc[result.start:result.end].ffill()
     if not bench_prices.empty:
         # Rebase to start at 1 based on the first available valid price
@@ -480,13 +483,40 @@ fig, colors = create_main_chart(
     compare,
     line_names,
     line_colors,
-    show_benchmarks and bool(benchmarks),
+    bool(benchmarks),
     mobile,
     color_order,
 )
+if not show_assets:
+    # Hide after building the chart: the colors were assigned with the assets included, so the
+    # composition charts still find them and nothing changes color when the toggle flips.
+    hidden = set(compare.columns) - set(benchmarks) - set(line_names.values())
+    fig.data = tuple(trace for trace in fig.data if trace.name not in hidden)
 st.plotly_chart(fig, width="stretch", key="main_chart")
 
-st.plotly_chart(create_drawdown_chart(results, line_colors, mobile, both), width="stretch")
+drawdown_fig = create_drawdown_chart(results, line_colors, mobile, both)
+if benchmarks:
+    # The chart may plot fractions (-0.25) or percent (-25): copy whatever scale it already uses
+    # by comparing its first line with the drawdown of the first strategy.
+    first_equity = next(iter(results.values())).equity
+    first_drawdown = (first_equity / first_equity.cummax() - 1).min()
+    plotted_min = min(drawdown_fig.data[0].y)
+    scale = 100 if first_drawdown and abs(plotted_min / first_drawdown) > 10 else 1
+    for b in benchmarks:
+        series = compare[b].dropna()
+        drawdown = (series / series.cummax() - 1) * scale
+        drawdown_fig.add_scatter(
+            x=drawdown.index,
+            y=drawdown.values,
+            mode="lines",
+            name=b,
+            line={"color": colors.get(b), "width": 1.5},  # same color as in the main chart
+            showlegend=True,
+        )
+    drawdown_fig.update_layout(showlegend=True)
+    if mobile:
+        drawdown_fig.update_layout(legend={"orientation": "h"})
+st.plotly_chart(drawdown_fig, width="stretch")
 
 for name, r in results.items():
     st.plotly_chart(
