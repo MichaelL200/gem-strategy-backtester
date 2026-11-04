@@ -389,13 +389,41 @@ def metrics(index: int, first_label: str, first_value: str, r: backtest.Result) 
     with st.container(key=f"metrics_{index}"):
         cols = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
         cols[0].metric(first_label, first_value)
-        cols[1].metric("CAGR", f"{r.cagr:.1%}")
-        cols[2].metric("Total return", f"{r.total_return:.1%}")
-        cols[3].metric("Volatility", f"{r.volatility:.1%}")
-        cols[4].metric("Sharpe", f"{r.sharpe:.2f}" if math.isfinite(r.sharpe) else "n/a")
-        cols[5].metric("Sortino", f"{r.sortino:.2f}" if math.isfinite(r.sortino) else "n/a")
-        cols[6].metric("Calmar", f"{r.calmar:.2f}" if math.isfinite(r.calmar) else "n/a")
-        cols[7].metric("Max drawdown", f"{r.max_drawdown:.1%}")
+        cols[1].metric(
+            "CAGR",
+            f"{r.cagr:.1%}",
+            help="The yearly return your investment would have earned if it had grown at a steady compounded rate over the whole period.",
+        )
+        cols[2].metric(
+            "Total return",
+            f"{r.total_return:.1%}",
+            help="How much the investment gained or lost from start to finish, including the effect of compounding.",
+        )
+        cols[3].metric(
+            "Volatility",
+            f"{r.volatility:.1%}",
+            help="How much daily returns varied. Higher values mean a bumpier ride; it is annualized using 252 trading days.",
+        )
+        cols[4].metric(
+            "Sharpe",
+            f"{r.sharpe:.2f}" if math.isfinite(r.sharpe) else "n/a",
+            help="Return earned for each unit of overall price variation. It is the average daily return, annualized, divided by annualized volatility.",
+        )
+        cols[5].metric(
+            "Sortino",
+            f"{r.sortino:.2f}" if math.isfinite(r.sortino) else "n/a",
+            help="Return earned for each unit of downside risk. It uses only negative daily returns when measuring risk, with both return and risk annualized.",
+        )
+        cols[6].metric(
+            "Calmar",
+            f"{r.calmar:.2f}" if math.isfinite(r.calmar) else "n/a",
+            help="Annualized return compared with the worst peak-to-trough loss. Higher values mean more return relative to the biggest setback.",
+        )
+        cols[7].metric(
+            "Max drawdown",
+            f"{r.max_drawdown:.1%}",
+            help="The largest percentage loss from an earlier portfolio peak before recovering or reaching the end of the period.",
+        )
 
 
 if both:
